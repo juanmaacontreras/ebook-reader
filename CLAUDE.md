@@ -244,6 +244,18 @@ screens and bottom sheets on phones. The reading surface has its own themes
   on phones, the keep-reading card stacked with a large cover (option B, picked
   over A = bigger side-by-side cover and C = fixed tiles with blurred fill).
 
+- 2026-10-22: audio management, user's call ("confío en tu criterio") on my
+  proposal: (1) opening a book no longer makes it "reading": that takes 4 pages
+  or 2 minutes, or starting audio; (2) narrations have a `scope`: 'ahead'
+  (automatic: the worker keeps the current chapter + 2 ready from the synced
+  position, `AHEAD_CHAPTERS`) or 'all' (the sheet's "Generar todo el libro");
+  (3) an "Audios" screen (`screens/audios.ts`, route `#/audios`): PC status,
+  cloud usage vs 700 MB, every narration with pause/resume, generate all, move
+  up the queue (`putFirst` = oldest requested_at), delete audio (cloud + device,
+  row kept paused so auto-narration doesn't recreate it). Its design is pending
+  the user's pick (A cards / B grouped by state with a "now" card / C compact
+  with inline buttons, `?variant`); the library button stays hidden until then.
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:

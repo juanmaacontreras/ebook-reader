@@ -40,8 +40,30 @@ SEED = """async ([progress]) => {
 }"""
 
 
+SEED_AUDIO = """async () => {
+  const db = window.__atril.db
+  const books = (await db.all('books')).sort((a, b) => a.title.localeCompare(b.title))
+  const t0 = Date.now()
+  const plan = [  // [state, status, scope, chapters ready, on device]
+    ['generating', 'active', 'ahead', 1, 1], ['waiting', 'active', 'all', 0, 0], ['ready', 'active', 'all', 3, 2],
+    ['ready', 'active', 'ahead', 2, 2], ['waiting', 'paused', 'ahead', 1, 0],
+  ]
+  for (const [k, [state, status, scope, ready, dev]] of plan.entries()) {
+    const b = books[k]; if (!b) break
+    if (b.status === 'finished') { b.status = 'reading'; await db.put('books', b) }
+    const voice = k === 3 ? 'kokoro:ef_dora' : 'chatterbox-latam:ar_elena'
+    await db.put('narrations', { book_id: b.id, voice, status, scope, state, start_section: 0, priority_section: null,
+      current_section: state === 'generating' ? ready : null, error: null,
+      requested_at: new Date(t0 - (10 - k) * 60e3).toISOString(), updated_at: new Date(t0).toISOString() })
+    for (let s = 0; s < ready; s++)
+      await db.put('chapters', { book_id: b.id, voice, section: s, audio_path: 'x', duration: 1500, bytes: 13.8e6 + s * 9e5,
+        created_at: new Date(t0).toISOString(), cached: s < dev })
+  }
+}"""
+
+
 async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant: str | None, errors: list[str],
-                library: Path | None = None, only_library: bool = False) -> None:
+                library: Path | None = None, only_library: bool = False, audios: bool = False) -> None:
     ctx = await browser.new_context(color_scheme=scheme, **DEVICES[device])
     page = await ctx.new_page()
     page.on("pageerror", lambda e: errors.append(f"{device}/{scheme}: {e}"))
@@ -63,6 +85,14 @@ async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant:
     tag = f"{device}-{scheme}" + (f"-{variant}" if variant else "")
     await page.screenshot(path=out / f"{tag}-library.png")
     if only_library:
+        await ctx.close()
+        return
+    if audios:
+        await page.evaluate(SEED_AUDIO)
+        await page.goto(f"{url}/{q}#/audios")
+        await page.wait_for_selector(".meter", timeout=20000)
+        await page.wait_for_timeout(1500)
+        await page.screenshot(path=out / f"{tag}-audios.png")
         await ctx.close()
         return
     await page.click(".bookc, .brow")
@@ -87,6 +117,7 @@ async def main() -> None:
     ap.add_argument("--schemes", default="light,dark")
     ap.add_argument("--library", help="folder of EPUBs to import instead of the sample (seeds some progress)")
     ap.add_argument("--only-library", action="store_true")
+    ap.add_argument("--audios", action="store_true", help="seed narrations and capture the Audios screen")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -97,7 +128,7 @@ async def main() -> None:
             for device in args.devices.split(","):
                 for scheme in args.schemes.split(","):
                     await shoot(browser, args.url, out, device, scheme, args.variant, errors,
-                                Path(args.library) if args.library else None, args.only_library)
+                                Path(args.library) if args.library else None, args.only_library, args.audios)
         finally:
             await browser.close()
             for e in errors:

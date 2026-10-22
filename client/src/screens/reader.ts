@@ -117,10 +117,18 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     const k = sentenceAt(sents, loc.range.startContainer, loc.range.startOffset)
     const cfi = manifest?.sections.find(s => s.i === c.index)?.sentences[k]?.c ?? view.getCFI(c.index, sents[k].range)
     savePosition(c.index, k, cfi)
-    if (book.status === 'to_read') void books.setStatus(book.id, 'reading')
+    // Opening a book is not reading it: "Leyendo" (and automatic narration)
+    // only after a few page turns or two minutes in the book.
+    pagesSeen.add(loc.cfi)
+    if (book.status === 'to_read' && (pagesSeen.size >= 4 || Date.now() - openedAt > 120_000)) {
+      book.status = 'reading'
+      void books.setStatus(book.id, 'reading')
+    }
     if ((loc.fraction ?? 0) > 0.995 && book.status !== 'finished') offerFinish()
   }) as EventListener)
 
+  const pagesSeen = new Set<string>()
+  const openedAt = Date.now()
   let offeredFinish = false
   const offerFinish = () => {
     if (offeredFinish) return
@@ -264,6 +272,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   const showPlayer = async () => {
     if (!narr) return
+    if (book.status === 'to_read') { book.status = 'reading'; void books.setStatus(book.id, 'reading') }
     if (!player) {
       player = playerCard(narr, {
         close: () => hidePlayer(),

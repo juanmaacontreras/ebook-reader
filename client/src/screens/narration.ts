@@ -41,7 +41,8 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
           : row.state === 'purged' ? t.audioPurged
           : row.state === 'error' ? t.audioError(row.error ?? '')
           : row.status === 'paused' ? `${t.audioPaused} (${done}/${total})`
-          : row.state === 'ready' || done >= total ? `${t.audioReady}. ${t.audioDownloaded(local, total)}`
+          : done >= total ? `${t.audioReady}. ${t.audioDownloaded(local, total)}`
+          : row.scope === 'ahead' ? `${row.state === 'ready' ? t.audioAheadReady : t.audioAheadGenerating} (${done}/${total}). ${t.aheadHint}`
           : done ? t.audioGenerating(done, total) : t.audioQueued))
       const usable = voices.filter(v => v.languages.includes(lang))
       const featured = featuredVoices(lang, row?.voice ?? null)
@@ -83,6 +84,8 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
         row && local ? h('button.btn.small.ghost', { style: 'margin-right:auto', onclick: async () => { await deleteBookAudio(book.id); void render() } }, t.deleteLocalAudio) : null,
         sameVoice && generating && row.status === 'active'
           ? h('button.btn.small.ghost', { onclick: async () => { await narration.setPaused(book.id, true); void render() } }, t.pauseGeneration) : null,
+        sameVoice && row.scope === 'ahead' && done < total
+          ? h('button.btn.small.ghost', { onclick: async () => { await narration.setScope(book.id, 'all'); void render() } }, t.generateAll) : null,
         sameVoice && (row.status === 'paused' || row.state === 'error')
           ? h('button.btn.small.ghost', { onclick: async () => { await narration.request(book.id, selected, section); void render() } }, t.resumeGeneration) : null,
         sameVoice

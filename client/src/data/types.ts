@@ -56,6 +56,8 @@ export interface Narration {
   book_id: string
   voice: string
   status: 'active' | 'paused'
+  // 'ahead': only the next chapters from where the user is (automatic); 'all': the whole book.
+  scope: 'ahead' | 'all'
   start_section: number | null
   priority_section: number | null
   requested_at: string

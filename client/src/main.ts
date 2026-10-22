@@ -20,7 +20,11 @@ async function route(): Promise<void> {
   teardown?.()
   teardown = null
   const m = location.hash.match(/^#\/book\/([\w-]+)/)
-  if (m) {
+  if (location.hash === '#/audios') {
+    applyUiTheme()
+    const { audiosScreen } = await import('./screens/audios')
+    teardown = audiosScreen(root, id => (location.hash = `#/book/${id}`), () => history.back())
+  } else if (m) {
     const { readerScreen } = await import('./screens/reader')
     teardown = await readerScreen(root, m[1], () => history.length > 1 ? history.back() : (location.hash = '#/'))
   } else {
