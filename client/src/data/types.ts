@@ -43,6 +43,8 @@ export interface ReadingSession {
   ended_at: string
   seconds: number
   words: number
+  pace_words: number     // clean pages only (reading speed), see data/sessions.ts
+  pace_seconds: number
   updated_at: string
 }
 

@@ -7,7 +7,7 @@ import { gunzipJson } from '../book/manifest'
 import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentences'
 import { local, remote } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
-import { SessionTracker, wordIndex } from '../data/sessions'
+import { habitualPace, langOf, SessionTracker, wordIndex } from '../data/sessions'
 import { onChange } from '../data/sync'
 import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
@@ -96,8 +96,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const currentDoc = () => view.renderer.getContents()[0]
 
   // ---- Position -------------------------------------------------------------
-  const tracker = new SessionTracker(book.id, wordIndex(manifest))
-  const onHidden = () => { if (document.visibilityState === 'hidden') void tracker.save() }
+  const tracker = new SessionTracker(book.id, wordIndex(manifest), await habitualPace(langOf(book)))
+  const onHidden = () => { if (document.visibilityState === 'hidden') { tracker.interrupt(); void tracker.save() } }
   document.addEventListener('visibilitychange', onHidden)
   let lastLoc: Location | null = null
   let audioDriven = false
