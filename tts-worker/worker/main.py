@@ -70,10 +70,11 @@ main{{max-width:380px;margin:12vh auto;padding:24px;background:#FAFBFC;border-ra
 h1{{font-size:24px;font-weight:800;letter-spacing:-.5px;margin:0 0 8px}}p{{color:#4C566A}}
 input{{width:100%;box-sizing:border-box;padding:13px 14px;border:2px solid transparent;border-radius:14px;background:#E5E9F0;font:inherit;font-size:16px;margin:6px 0}}
 input:focus{{outline:none;border-color:#5E81AC;background:#fff}}button{{width:100%;height:46px;border:0;border-radius:23px;background:#5E81AC;color:#fff;font:inherit;font-weight:700;margin-top:10px}}
-.e{{color:#BF616A;font-weight:600}}</style><main><h1>Vincular esta PC</h1>
-<p>Entrá con la misma cuenta que usás en Atril. Es una sola vez: después la PC genera el audio sola.</p>
-<form method=post><input name=email type=email placeholder=Correo required><input name=password type=password placeholder=Contraseña required>
-<p class=e>{error}</p><button>Entrar</button></form></main></html>"""
+.e{{color:#BF616A;font-weight:600}}.alt{{background:#E5E9F0;color:#5E81AC}}</style><main><h1>Vincular esta PC</h1>
+<p>Entrá con la misma cuenta que usás en Atril. Es una sola vez: después la PC genera el audio sola.
+Si todavía no tenés cuenta, creala acá y usá el mismo correo y contraseña en la app.</p>
+<form method=post><input name=email type=email placeholder=Correo required><input name=password type=password placeholder="Contraseña (mínimo 8 caracteres)" minlength=8 required>
+<p class=e>{error}</p><button name=action value=in>Entrar</button><button name=action value=up class=alt>Crear cuenta</button></form></main></html>"""
 
 
 def sign_in_interactive(db: Supabase) -> None:
@@ -100,10 +101,19 @@ def sign_in_interactive(db: Supabase) -> None:
 
         def do_POST(self) -> None:
             form = parse_qs(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode())
+            email, password = form.get("email", [""])[0].strip(), form.get("password", [""])[0]
+            signup = form.get("action", ["in"])[0] == "up"
             try:
-                db.sign_in(form.get("email", [""])[0].strip(), form.get("password", [""])[0])
+                (db.sign_up if signup else db.sign_in)(email, password)
             except AuthError as e:
-                self._page(LINK_PAGE.format(error=f"No se pudo entrar: {e}"))
+                msg = str(e)
+                if "Sign-ups are closed" in msg or "Database error saving new user" in msg:
+                    msg = "este correo no tiene permiso para crear una cuenta"
+                elif "already registered" in msg:
+                    msg = "ese correo ya tiene cuenta: tocá Entrar"
+                elif "Invalid login" in msg:
+                    msg = "el correo o la contraseña no coinciden"
+                self._page(LINK_PAGE.format(error=f"No se pudo {'crear la cuenta' if signup else 'entrar'}: {msg}"))
                 return
             self._page(LINK_PAGE.format(error="").split("<form")[0].replace("Vincular esta PC", "PC vinculada") + "<p>Listo, ya podés cerrar esta pestaña.</p></main></html>")
 

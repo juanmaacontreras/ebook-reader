@@ -56,6 +56,15 @@ class Supabase:
     def sign_in(self, email: str, password: str) -> None:
         self._token("password", {"email": email, "password": password})
 
+    def sign_up(self, email: str, password: str) -> None:
+        """Create the account (sign-ups are allow-listed and auto-confirmed), then sign in."""
+        r = httpx.post(f"{self.url}/auth/v1/signup", json={"email": email, "password": password},
+                       headers={"apikey": self.key}, timeout=30)
+        if r.status_code >= 400:
+            body = r.json()
+            raise AuthError(body.get("msg") or body.get("error_description") or body.get("message") or r.text)
+        self.sign_in(email, password)
+
     def _auth(self, request: httpx.Request) -> None:
         if self.session.get("expires_at", 0) - time.time() < 120:
             self._token("refresh_token", {"refresh_token": self.session["refresh_token"]})
