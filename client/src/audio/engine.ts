@@ -44,4 +44,7 @@ export class Emitter {
 }
 
 export const SKIP_SECONDS = 30
-export const RATES = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
+// Presets in the speed sheet; any value in [MIN_RATE, MAX_RATE] works (steps of 0.05).
+export const RATES = [0.75, 1, 1.25, 1.5, 2]
+export const MIN_RATE = 0.5
+export const MAX_RATE = 2.5

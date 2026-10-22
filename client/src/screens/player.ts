@@ -1,5 +1,5 @@
 import type { NarrationController } from '../audio/controller'
-import { RATES } from '../audio/engine'
+import { MAX_RATE, MIN_RATE, RATES } from '../audio/engine'
 import { t } from '../strings'
 import { h } from '../ui/dom'
 import { icon } from '../ui/icons'
@@ -36,20 +36,16 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
   let lastTime = 0
   const playIcon = h('span', icon('play'))
   const play = h('button.playbig', { 'aria-label': t.play, onclick: () => void narr.toggle() }, playIcon)
-  // DESIGN PROPOSAL (pending): a = preset sheet, b = fine-tune sheet, c = inline stepper.
-  const v = document.documentElement.dataset.variant ?? 'a'
+  // Speed: a sheet with fine steps (0.05), a slider and the usual presets, so
+  // a missed tap is one step back instead of a whole cycle.
   const setRate = (r: number) => {
-    r = Math.round(Math.min(2.5, Math.max(0.5, r)) * 100) / 100
+    r = Math.round(Math.min(MAX_RATE, Math.max(MIN_RATE, r)) * 100) / 100
     speed.textContent = rateLabel(r)
     void narr.setRate(r)
   }
-  const speed: HTMLElement = h('button.speedbtn.num', { title: t.speed, onclick: () => v === 'b' ? fineSheet() : presetSheet() }, rateLabel(narr.rate))
-  const presetSheet = () => openDialog(t.speed, (body, close) => {
-    body.append(h('div.rates', ...RATES.map(r => h('button.rate.num' + (r === narr.rate ? '.active' : ''), { onclick: () => { setRate(r); close() } }, rateLabel(r)))))
-  })
-  const fineSheet = () => openDialog(t.speed, body => {
+  const speedSheet = () => openDialog(t.speed, body => {
     const big = h('div.ratebig.num', rateLabel(narr.rate))
-    const slider = h('input', { type: 'range', min: '0.5', max: '2.5', step: '0.05', value: String(narr.rate), 'aria-label': t.speed }) as HTMLInputElement
+    const slider = h('input', { type: 'range', min: String(MIN_RATE), max: String(MAX_RATE), step: '0.05', value: String(narr.rate), 'aria-label': t.speed }) as HTMLInputElement
     const apply = (r: number) => { setRate(r); big.textContent = rateLabel(narr.rate); slider.value = String(narr.rate) }
     slider.oninput = () => apply(Number(slider.value))
     body.append(
@@ -57,26 +53,21 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
         h('button.iconbtn', { 'aria-label': t.slower, onclick: () => apply(narr.rate - 0.05) }, icon('minus')),
         big,
         h('button.iconbtn', { 'aria-label': t.faster, onclick: () => apply(narr.rate + 0.05) }, icon('plus'))),
-      h('div.sizes', h('span.a.num', '0,5×'), slider, h('span.a.num', '2,5×')),
-      h('div.rates.small', ...[0.75, 1, 1.25, 1.5, 2].map(r => h('button.rate.num', { onclick: () => apply(r) }, rateLabel(r)))))
+      h('div.sizes', h('span.a.num', rateLabel(MIN_RATE)), slider, h('span.a.num', rateLabel(MAX_RATE))),
+      h('div.rates', ...RATES.map(r => h('button.rate.num', { onclick: () => apply(r) }, rateLabel(r)))))
   })
-  const stepper = h('div.ratestep',
-    h('button', { 'aria-label': t.slower, onclick: () => setRate(narr.rate - 0.05) }, icon('minus')),
-    speed,
-    h('button', { 'aria-label': t.faster, onclick: () => setRate(narr.rate + 0.05) }, icon('plus')))
-  if (v === 'c') speed.onclick = () => setRate(1)
+  const speed = h('button.speedbtn.num', { title: t.speed, onclick: speedSheet }, rateLabel(narr.rate))
   const skipBtn = (ico: string, label: string, run: () => void) =>
     h('button.iconbtn.flat.skipbtn', { title: label, 'aria-label': label, onclick: run }, icon(ico), h('small', '30'))
 
   const el = h('div.card.player',
     h('div.ptop',
       h('div.pinfo', chapter, status),
-      v === 'c' ? stepper : null,
       h('button.iconbtn.flat', { title: audioManager ? t.voice : t.narration, 'aria-label': audioManager ? t.voice : t.narration, onclick: () => opts.voice() }, icon('wave')),
       h('button.iconbtn.flat', { 'aria-label': t.close, onclick: () => opts.close() }, icon('close'))),
     h('div.ptrack', cur, seek, dur),
     h('div.pctl',
-      v === 'c' ? h('span.pspacer') : speed,
+      speed,
       h('button.iconbtn.flat', { title: t.prevSentence, 'aria-label': t.prevSentence, onclick: () => void narr.stepSentence(-1) }, icon('prevs')),
       skipBtn('rewind', t.back30, () => void narr.back()),
       play,

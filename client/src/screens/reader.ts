@@ -129,30 +129,17 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     if ((loc.fraction ?? 0) > 0.995 && book.status !== 'finished') offerFinish()
   }) as EventListener)
 
-  // DESIGN PROPOSAL (pending): a = "3 de 12" pages of the chapter, b = pages
-  // left in the chapter, c = estimated book pages + pages left in the chapter.
+  // Footer: chapter on the left; pages left in this chapter (paginated only:
+  // the renderer counts screens of the current section, minus its two
+  // padding pages) and the book's percentage on the right.
   const updateFooter = (loc: Location) => {
-    const v = document.documentElement.dataset.variant ?? 'a'
     const pct = t.percentRead(Math.round((loc.fraction ?? 0) * 100))
     const r = view.renderer
-    const paged = prefs().flow === 'paginated' && r.pages > 2
-    const page = paged ? Math.min(Math.max(r.page, 1), r.pages - 2) : 0
-    const total = paged ? r.pages - 2 : 0
-    const left = total - page
     footLeft.textContent = loc.tocItem?.label ?? ''
-    if (!paged) { footRight.textContent = pct; return }
-    if (v === 'a') footRight.textContent = `${t.pageOf(page, total)} · ${pct}`
-    else if (v === 'b') footRight.textContent = `${t.pagesLeftChapter(left)} · ${pct}`
-    else {
-      // Book pages estimated from this section's page density (bytes per page).
-      const secs = view.book.sections
-      const cur = secs[loc.section.current]?.size || 1
-      const perByte = total / cur
-      const before = secs.slice(0, loc.section.current).reduce((a, x) => a + (x.linear !== 'no' ? x.size ?? 0 : 0), 0)
-      const all = secs.reduce((a, x) => a + (x.linear !== 'no' ? x.size ?? 0 : 0), 0)
-      footLeft.textContent = t.pagesLeftShort(left)
-      footRight.textContent = t.bookPage(Math.round(before * perByte) + page, Math.max(Math.round(all * perByte), 1))
-    }
+    if (prefs().flow !== 'paginated' || r.pages <= 2) { footRight.textContent = pct; return }
+    const total = r.pages - 2
+    const page = Math.min(Math.max(r.page, 1), total)
+    footRight.textContent = `${t.pagesLeftChapter(total - page)} · ${pct}`
   }
 
   const pagesSeen = new Set<string>()
