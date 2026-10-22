@@ -300,6 +300,18 @@ Not verified yet / to watch:
   still receiving plugin events; worst case it's pushed when the app resumes.
 - Chatterbox's first chapter takes ~2.5× its length to generate; Kokoro ~1 min.
 
+## Worker gotchas (learned the hard way)
+
+- **GPU out of memory, 2026-10-22, ~3 h lost overnight.** Two causes stacked:
+  (1) worker processes left running by an integration test (they held VRAM): kill
+  test workers when a test ends, always; (2) one chunk whose decoder working set
+  didn't fit the 4 GB GTX 1650 even on an empty GPU. Now: on OOM a chunk is split
+  in halves (`narrate._synth_or_split`), and an OOM that still escapes reloads the
+  model instead of retrying in the same process state; the service sets
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+- Chatterbox's real speed on long chapters was ~0.3× real time (≈1.4 h per
+  ~25k-character chapter), a bit slower than the 0.4× of the short samples.
+
 ## The user's Arch PC (installed 2026-10-21)
 
 - Desktop app: `~/.local/opt/atril/Atril.AppImage` (writable, so Tauri's updater

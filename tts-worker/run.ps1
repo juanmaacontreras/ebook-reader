@@ -16,6 +16,7 @@ if ($removeStartup) { Remove-Item $link -ErrorAction SilentlyContinue; Write-Hos
 
 # Python 3.12 + PyTorch (CUDA) + Kokoro + Chatterbox, into .\.venv (~6 GB).
 uv sync --frozen
+$env:PYTORCH_CUDA_ALLOC_CONF = 'expandable_segments:True'
 
 if ($startup) {
   $shell = New-Object -ComObject WScript.Shell

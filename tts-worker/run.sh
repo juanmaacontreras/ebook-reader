@@ -33,6 +33,8 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=$PWD
+# Less VRAM fragmentation over long runs on the 4 GB GPU.
+Environment=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ExecStart=$(command -v uv) run --frozen python -m worker
 Restart=on-failure
 RestartSec=30
