@@ -1,0 +1,165 @@
+name: Build and release
+
+# Every push builds the APK and the desktop installers; only main publishes a
+# GitHub Release, which is what the apps offer to install (see
+# client/src/platform/updater.ts). Release number = commit count, tag v<N>.
+on:
+  push:
+    paths:
+      - 'client/**'
+      - 'tts-worker/worker/**'
+      - 'tts-worker/tests/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create tags and releases
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.n }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: the version is the commit count
+      - id: ver
+        run: echo "n=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+        working-directory: client
+      - name: Typecheck + unit tests (app)
+        run: npm run typecheck && npm test
+        working-directory: client
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests (worker text/timing logic, stdlib only)
+        run: python -m unittest discover -s tests -v
+        working-directory: tts-worker
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ needs.test.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - run: npm ci && npm run build && npx cap sync android
+        working-directory: client
+      # Fixed signing key so every APK installs over the previous one.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then echo "$KEYSTORE_B64" | base64 -d > client/android/app/release.p12; else echo "::warning::ANDROID_KEYSTORE_B64 missing: unsigned debug key"; fi
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleDebug --no-daemon -Pvcode=$APP_VERSION
+        working-directory: client/android
+      - run: cp client/android/app/build/outputs/apk/debug/app-debug.apk atril.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: atril.apk
+
+  desktop:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ needs.test.outputs.version }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+      - run: npm ci
+        working-directory: client
+      - name: Build
+        shell: bash
+        run: npx tauri build --config "{\"version\":\"0.1.$APP_VERSION\"}"
+        working-directory: client
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir out
+          find client/src-tauri/target/release/bundle \( -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*-setup.exe' -o -name '*-setup.exe.sig' \) -exec cp {} out/ \;
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ runner.os }}
+          path: out/*
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: [test, android, desktop]
+    runs-on: ubuntu-latest
+    env:
+      N: ${{ needs.test.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          merge-multiple: true
+      # Tauri's updater reads latest.json from the latest release.
+      - name: Updater manifest
+        run: |
+          cd art && ls -la
+          base="https://github.com/${{ github.repository }}/releases/download/v$N"
+          img=$(ls *.AppImage | head -1); exe=$(ls *-setup.exe | head -1)
+          jq -n --arg v "0.1.$N" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg ls "$(cat "$img.sig")" --arg lu "$base/$img" \
+            --arg ws "$(cat "$exe.sig")" --arg wu "$base/$exe" \
+            '{version:$v, pub_date:$d, notes:"", platforms:{"linux-x86_64":{signature:$ls,url:$lu}, "windows-x86_64":{signature:$ws,url:$wu}}}' > latest.json
+          cat latest.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.N }}
+          name: v${{ env.N }}
+          files: |
+            art/atril.apk
+            art/*.AppImage
+            art/*.AppImage.sig
+            art/*-setup.exe
+            art/*-setup.exe.sig
+            art/latest.json

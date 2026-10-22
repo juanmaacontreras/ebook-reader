@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="230" fill="#5E81AC"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <!-- open book -->
+    <path d="M512 330 C 440 280, 330 266, 236 282 V 690 C 330 674, 440 688, 512 738 C 584 688, 694 674, 788 690 V 282 C 694 266, 584 280, 512 330 Z"/>
+    <path d="M512 330 V 738"/>
+  </g>
+  <!-- sound waves on the right page -->
+  <g fill="none" stroke="#88C0D0" stroke-width="40" stroke-linecap="round">
+    <path d="M600 470 V 550"/>
+    <path d="M660 430 V 590"/>
+    <path d="M720 485 V 535"/>
+  </g>
+</svg>

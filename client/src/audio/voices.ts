@@ -1,0 +1,18 @@
+import type { VoiceInfo } from '../data/types'
+
+// Fallback voice list for when the PC hasn't reported its own yet
+// (worker_status.voices). Same ids as tts-worker/worker/engines.
+export const DEFAULT_VOICES: VoiceInfo[] = [
+  { id: 'kokoro:ef_dora', label: 'Dora', languages: ['es'], cloned: false },
+  { id: 'kokoro:em_alex', label: 'Alex', languages: ['es'], cloned: false },
+  { id: 'kokoro:em_santa', label: 'Santa', languages: ['es'], cloned: false },
+  { id: 'kokoro:af_heart', label: 'Heart', languages: ['en'], cloned: false },
+  { id: 'kokoro:af_bella', label: 'Bella', languages: ['en'], cloned: false },
+  { id: 'kokoro:am_michael', label: 'Michael', languages: ['en'], cloned: false },
+  { id: 'kokoro:bf_emma', label: 'Emma', languages: ['en'], cloned: false },
+  { id: 'kokoro:bm_george', label: 'George', languages: ['en'], cloned: false },
+]
+
+export function defaultVoice(lang: string): string {
+  return lang.startsWith('en') ? 'kokoro:af_heart' : 'kokoro:ef_dora'
+}

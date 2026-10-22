@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Atril</string>
+    <string name="title_activity_main">Atril</string>
+    <string name="package_name">com.atril.reader</string>
+    <string name="custom_url_scheme">com.atril.reader</string>
+</resources>

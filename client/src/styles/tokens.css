@@ -1,0 +1,48 @@
+/* ===== Design tokens ========================================================
+   Same family as Bitácora (time-tracker/web/index.html): Nord palette, light =
+   "Snow Storm", dark = "Polar Night". Light/dark follow the system unless the
+   user picks one (data-theme on <html>). Borderless surfaces: hierarchy comes
+   from tones (paper < card), surface2 for tracks and fields. */
+:root {
+  --paper:#ECEFF4; --card:#FAFBFC; --surface2:#E5E9F0; --raised:#FAFBFC;
+  --ink:#2E3440; --inkSoft:#4C566A; --muted:#7A869B; --line:#D8DEE9;
+  --indigo:#5E81AC; --live:#3F86B0; --paused:#C2784F; --danger:#BF616A; --up:#5F8A4E;
+  --onAccent:#FFFFFF;
+  --shadow:0 1px 2px rgba(46,52,64,.05), 0 2px 8px rgba(46,52,64,.06);
+  --shadowUp:0 8px 30px rgba(46,52,64,.2);
+  --scrim:rgba(46,52,64,.4);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#2E3440; --card:#3B4252; --surface2:#434C5E; --raised:#4C566A;
+    --ink:#ECEFF4; --inkSoft:#D8DEE9; --muted:#9AA4B6; --line:#434C5E;
+    --indigo:#81A1C1; --live:#88C0D0; --paused:#EBCB8B; --danger:#BF616A; --up:#A3BE8C;
+    --onAccent:#2E3440;
+    --shadow:none; --shadowUp:0 8px 30px rgba(0,0,0,.35); --scrim:rgba(20,24,31,.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#2E3440; --card:#3B4252; --surface2:#434C5E; --raised:#4C566A;
+  --ink:#ECEFF4; --inkSoft:#D8DEE9; --muted:#9AA4B6; --line:#434C5E;
+  --indigo:#81A1C1; --live:#88C0D0; --paused:#EBCB8B; --danger:#BF616A; --up:#A3BE8C;
+  --onAccent:#2E3440;
+  --shadow:none; --shadowUp:0 8px 30px rgba(0,0,0,.35); --scrim:rgba(20,24,31,.6);
+  color-scheme: dark;
+}
+:root {
+  --accentSoft:color-mix(in srgb, var(--indigo) 13%, var(--card));
+  --liveSoft:color-mix(in srgb, var(--live) 12%, var(--card));
+  --pausedSoft:color-mix(in srgb, var(--paused) 13%, var(--card));
+  --dangerSoft:color-mix(in srgb, var(--danger) 12%, var(--card));
+  --r-lg:22px; --r-md:16px; --r-sm:12px; --r-dialog:28px;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --safe-top:var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom:var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+
+/* Highlight colors (Nord Aurora/Frost). Same keys are stored in the database. */
+:root {
+  --hl-yellow:#EBCB8B; --hl-green:#A3BE8C; --hl-blue:#88C0D0; --hl-orange:#D08770; --hl-purple:#B48EAD;
+}
