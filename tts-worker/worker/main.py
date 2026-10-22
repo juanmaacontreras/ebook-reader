@@ -160,7 +160,7 @@ class Worker:
         url, key = supabase_config()
         if not url or not key:
             sys.exit("Supabase is not configured yet (client/src/config.ts is empty). See CLAUDE.md.")
-        self.db = Supabase(url, key, ROOT / ".session.json")
+        self.db = Supabase(url, key, Path(os.environ.get("SESSION_FILE", ROOT / ".session.json")))
         if not self.db.signed_in():
             sign_in_interactive(self.db)
         self.work = Path(os.environ.get("WORK_DIR", ROOT / "work"))

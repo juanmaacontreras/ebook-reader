@@ -244,7 +244,14 @@ Built, not yet confirmed on a device:
 - ⏳ Worker: loop, priorities, resume, QC, upload, purge on finish, sign-in page,
   run scripts. Kokoro and Chatterbox verified on the GTX 1650 with
   `compare_voices.py` (samples in `tts-worker/samples/`, gitignored).
-- ⏳ Supabase project: not created yet (needs the user's account).
+- ✅ Supabase project `atril` (ref `uxavtsscsgtcjxfmfwrp`, sa-east-1, free tier,
+  same org as time-tracker), created 2026-10-21 through the Management API.
+  Schema applied, email confirmation off (sign-up is allow-listed instead),
+  allow-list = juammac@gmail.com.
+- ✅ End-to-end test against the real backend (2026-10-21, headless Chromium +
+  worker on the GTX 1650, temporary test account deleted afterwards): sign-up,
+  import, upload, narration request → worker (Kokoro) → chapters → playback in 8
+  s, read-along highlight, sentence position synced.
 
 Not verified yet / to watch:
 - Android: Java plugins compile only in CI so far; media notification buttons
@@ -254,6 +261,18 @@ Not verified yet / to watch:
 - Position push while listening with the screen off relies on the WebView
   still receiving plugin events; worst case it's pushed when the app resumes.
 - Chatterbox's first chapter takes ~2.5× its length to generate; Kokoro ~1 min.
+
+## Applying schema changes
+
+`supabase/schema.sql` is idempotent: run the whole file again. It needs either
+the SQL Editor of the Supabase dashboard (the user would have to paste it) or
+a Management API personal access token
+(`POST https://api.supabase.com/v1/projects/<ref>/database/query`). Ask the user
+for a short-lived token ("Create legacy token" in Account → Access Tokens) and
+tell them to revoke it afterwards; never store it in the repo. To test against
+the real backend, temporarily add a test email to `allowed_emails`, then delete
+that user (`delete from auth.users where email=...`), its Storage files and the
+allow-list entry.
 
 ## Phase 2 (designed for, not built)
 

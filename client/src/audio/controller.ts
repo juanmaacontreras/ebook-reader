@@ -82,6 +82,9 @@ export class NarrationController {
 
   // Start (or jump) narration at a sentence.
   async start(section: number, sentence: number, autoplay = true): Promise<void> {
+    // The request may have been written a moment ago (narration sheet): read it now
+    // instead of waiting for the change event, or this start is silently lost.
+    if (!this.row || !this.chapters.has(section)) await this.refresh()
     if (!this.row) return
     const ch = this.chapters.get(section)
     if (!ch) {

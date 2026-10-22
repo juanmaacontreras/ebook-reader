@@ -2,6 +2,7 @@ import { makeBook, type FoliateBook } from 'foliate-js/view.js'
 import { db } from '../data/db'
 import { local, paths } from '../data/files'
 import { syncSoon } from '../data/sync'
+import { supabase } from '../data/supabase'
 import type { Book, Local } from '../data/types'
 import { buildManifest, gzipJson } from './manifest'
 
@@ -55,6 +56,15 @@ export async function importEpub(file: File, uid: string, onProgress?: (f: numbe
   const hash = await sha256(buf)
   const existing = (await db.all<Book>('books')).find(b => b.sha256 === hash)
   if (existing) return { book: existing, duplicate: true }
+  // Imported on another device but not pulled here yet: (user_id, sha256) is
+  // unique in the database, so a second copy would never sync.
+  if (navigator.onLine) {
+    const { data } = await supabase.from('books').select('*').eq('sha256', hash).maybeSingle()
+    if (data) {
+      await db.put('books', { ...data, _dirty: false })
+      return { book: data as Book, duplicate: true }
+    }
+  }
 
   const epub = new File([buf], file.name, { type: 'application/epub+zip' })
   const fb = await makeBook(epub)

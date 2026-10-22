@@ -171,19 +171,24 @@ end $$;
 
 -- Chapter rows are deleted when a book's audio is purged; devices learn about
 -- it from this log (a pull can't see a row that no longer exists).
+-- No foreign key on user_id: deleting a user cascades to its chapters, whose
+-- delete trigger writes here while the user row is already gone.
 create table if not exists public.deleted_chapters (
   book_id uuid not null,
-  user_id uuid not null references auth.users on delete cascade,
+  user_id uuid not null,
   voice text not null,
   section int not null,
   synced_at timestamptz not null default now()
 );
+alter table public.deleted_chapters drop constraint if exists deleted_chapters_user_id_fkey;
 create index if not exists deleted_chapters_synced on public.deleted_chapters (user_id, synced_at);
 
 create or replace function public.log_deleted_chapter() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   insert into public.deleted_chapters (book_id, user_id, voice, section) values (old.book_id, old.user_id, old.voice, old.section);
+  -- Devices only need this log until their next pull; keep two months.
+  delete from public.deleted_chapters where synced_at < now() - interval '60 days';
   return old;
 end $$;
 

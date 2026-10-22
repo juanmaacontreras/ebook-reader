@@ -2,8 +2,8 @@
 // user to do with their own rows, and sign-ups are limited to allow-listed
 // emails (supabase/schema.sql). The secret key lives only on the PC running
 // the TTS worker (tts-worker/.env), never here.
-export const SUPABASE_URL = ''
-export const SUPABASE_KEY = ''
+export const SUPABASE_URL = 'https://uxavtsscsgtcjxfmfwrp.supabase.co'
+export const SUPABASE_KEY = 'sb_publishable_JYqkVR_9sR5BGEABXR8hvQ_0-1p14J4'
 
 export const GITHUB_REPO = 'juanmaacontreras/ebook-reader'
 
