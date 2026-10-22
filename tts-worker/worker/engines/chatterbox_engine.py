@@ -89,8 +89,10 @@ class ChatterboxEngine(Engine):
         self.model = ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, device)
         # Expressiveness knobs (Resemble's defaults: 0.5 / 0.5). Higher
         # exaggeration = more emotive; lower cfg_weight = slower, calmer pacing.
+        # cfg 0.25 = "Elena, más pausada", picked by the user over 0.5/0.5,
+        # 0.75/0.3 (more expressive) and 0.35/0.5 (calmer) on 2026-10-21.
         self.exaggeration = 0.5
-        self.cfg_weight = 0.5
+        self.cfg_weight = 0.25
         self.set_voice(voice)
 
     def set_voice(self, voice: str) -> None:

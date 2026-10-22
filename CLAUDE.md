@@ -230,8 +230,10 @@ screens and bottom sheets on phones. The reading surface has its own themes
 - 2026-10-21: library layout C ("keep reading" card on top, grid below), chosen
   over a plain cover grid and a list. Default voices: Spanish
   `chatterbox-latam:ar_elena`, English `kokoro:af_heart`
-  (`client/src/audio/voices.ts`). The user isn't fully convinced by any Spanish
-  voice yet ("la que más zafa es Elena"): keep improving Spanish.
+  (`client/src/audio/voices.ts`). Round 2 (same day): Elena with
+  exaggeration 0.5 / cfg_weight 0.25 ("más pausada") won over more expressive,
+  calmer, and XTTS-v2 (Elena or resumidor's reference; XTTS was ~7× faster but
+  not chosen, so it is not an engine here). Chatterbox defaults are now 0.5/0.25.
 
 ## Current state (2026-10-21)
 
