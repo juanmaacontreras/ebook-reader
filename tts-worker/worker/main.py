@@ -40,6 +40,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # Automatic ("ahead") narration keeps this many chapters ready from the user's
 # current one, the current one included.
 AHEAD_CHAPTERS = int(os.environ.get("AHEAD_CHAPTERS", "3"))
+# Audio of a finished book is deleted from the cloud this long after it was
+# marked finished. The worker is the only one that deletes it.
+PURGE_AFTER_HOURS = float(os.environ.get("PURGE_AFTER_HOURS", "24"))
 log = logging.getLogger("worker")
 
 
@@ -248,7 +251,11 @@ class Worker:
 
     # ---- sweep ----------------------------------------------------------------------
     def sweep_finished(self) -> None:
-        finished = self.db.select("books", {"select": "id", "status": "eq.finished"})
+        # A day of grace: a book marked finished by mistake (on any device) keeps
+        # its audio if it's switched back in time. All devices drop their local
+        # copies when these chapters disappear (deleted_chapters).
+        cutoff = datetime.fromtimestamp(time.time() - PURGE_AFTER_HOURS * 3600, timezone.utc).isoformat()
+        finished = self.db.select("books", {"select": "id", "status": "eq.finished", "finished_at": f"lt.{cutoff}"})
         for b in finished:
             n = self.purge(b["id"])
             if n:

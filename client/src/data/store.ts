@@ -7,6 +7,7 @@ import { emit, syncSoon } from './sync'
 import { supabase } from './supabase'
 import { prefs } from '../settings'
 import { defaultVoice } from '../audio/voices'
+import { audioManager } from '../platform'
 import type { Book, BookStatus, Highlight, HighlightColor, Local, Narration, NarrationChapter, Position, WorkerStatus } from './types'
 
 const now = () => new Date().toISOString()
@@ -29,7 +30,9 @@ export const books = {
     await db.put('books', { ...b, status, finished_at: status === 'finished' ? now() : null, updated_at: now(), _dirty: true })
     emit(['books'])
     syncSoon()
-    if (status === 'finished') await purgeAudio(id)
+    // Finishing a book doesn't delete audio here: the PC's worker does it a day
+    // later (a mistaken "terminado" can be undone meanwhile), and every device
+    // drops its copy when the cloud one goes (deleted_chapters, sync.ts).
     if (status === 'reading') await autoNarrate(id)
   },
   async edit(id: string, patch: { title: string; author: string | null }): Promise<void> {
@@ -44,7 +47,7 @@ export const books = {
 // "Generar audio solo": a book that becomes "reading" gets a narration request
 // with the default voice for its language, starting where the user is.
 export async function autoNarrate(bookId: string): Promise<void> {
-  if (!prefs().autoNarrate) return
+  if (!audioManager || !prefs().autoNarrate) return
   const [b, existing] = await Promise.all([books.get(bookId), narration.get(bookId)])
   if (!b || b.status !== 'reading' || existing || !b.text_path) return
   const pos = await positions.get(bookId)
@@ -53,7 +56,7 @@ export async function autoNarrate(bookId: string): Promise<void> {
 
 // Books already in "reading" (on start, or when the setting is turned on).
 export async function autoNarrateAll(): Promise<void> {
-  if (!prefs().autoNarrate) return
+  if (!audioManager || !prefs().autoNarrate) return
   for (const b of await books.all()) if (b.status === 'reading') await autoNarrate(b.id)
 }
 
@@ -110,6 +113,7 @@ export const narration = {
     syncSoon(200)
   },
   async prioritize(bookId: string, section: number): Promise<void> {
+    if (!audioManager) return  // phones never ask the PC for anything
     const cur = await narration.get(bookId)
     if (!cur || (cur.priority_section === section && cur.status === 'active')) return
     await db.put('narrations', { ...cur, priority_section: section, status: 'active', updated_at: now(), _dirty: true })

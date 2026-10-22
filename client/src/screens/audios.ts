@@ -14,6 +14,7 @@ import { t } from '../strings'
 import { confirmDialog, openDialog } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
+import { audioManager } from '../platform'
 
 const CLOUD_LIMIT = 700e6  // worker default MAX_AUDIO_MB (tts-worker/README.md)
 
@@ -79,20 +80,19 @@ function statusText(it: Item): string {
   }
 }
 
-const chipClass: Record<Kind, string> = { generating: '.live', queued: '', ready: '.ok', paused: '', error: '.warn' }
-
 export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, goBack: () => void): () => void {
-  const variant = document.documentElement.dataset.variant ?? 'a'
   const head = h('div')
   const list = h('div')
-  root.replaceChildren(h('div.wrap.audios.v-' + variant,
+  root.replaceChildren(h('div.wrap.audios',
     h('div.hd',
       h('button.iconbtn', { 'aria-label': t.back, onclick: () => goBack() }, icon('back')),
       h('div', h('div.title', t.audios)),
       h('div.spacer')),
     head, list))
 
-  const actions = (it: Item, rerender: () => void) => openDialog(it.book.title, (body, close) => {
+  // Phone/tablet: status only; tapping a book opens it to listen.
+  const actions = (it: Item, rerender: () => void) => audioManager ? manage(it, rerender) : openBook(it.book.id)
+  const manage = (it: Item, rerender: () => void) => openDialog(it.book.title, (body, close) => {
     const choice = (ico: string, label: string, run: () => Promise<void> | void, danger = false) =>
       h('button.choice' + (danger ? '.danger' : ''), { onclick: async () => { close(); await run(); rerender() } }, icon(ico), h('div', label))
     body.append(...[
@@ -125,24 +125,15 @@ export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, 
 
   const progress = (it: Item) => it.total ? h('div.prog', h('div.track', h('div.fill', { style: `width:${Math.round(100 * it.ready / it.total)}%` }))) : null
 
-  // A: one list of cards; tap a card for its actions.
-  const rowA = (it: Item, rerender: () => void) => h('div.card.arow', { role: 'button', tabIndex: 0, onclick: () => actions(it, rerender) },
-    cover(it.book),
-    h('div.mid',
-      h('div.bt', it.book.title),
-      h('div.astate', h('span.chip' + chipClass[it.kind], statusText(it))),
-      h('div.ba', meta(it)),
-      progress(it)),
-    h('span.more', icon('more')))
-
-  // C: compact rows with the common actions right there.
-  const rowC = (it: Item, rerender: () => void) => h('div.crow',
+  // A row: cover, title, state · voice · chapters · size, pause/resume on the PC.
+  const row = (it: Item, rerender: () => void) => h('div.crow',
     cover(it.book),
     h('div.mid', h('div.bt', it.book.title), h('div.ba', `${statusText(it)} · ${meta(it)}`)),
-    it.kind === 'paused' || it.kind === 'error'
+    !audioManager ? null
+    : it.kind === 'paused' || it.kind === 'error'
       ? h('button.iconbtn.flat', { 'aria-label': t.resumeGeneration, title: t.resumeGeneration, onclick: async () => { await narration.setPaused(it.book.id, false); rerender() } }, icon('play'))
       : it.kind !== 'ready' ? h('button.iconbtn.flat', { 'aria-label': t.pauseGeneration, title: t.pauseGeneration, onclick: async () => { await narration.setPaused(it.book.id, true); rerender() } }, icon('pause')) : null,
-    h('button.iconbtn.flat', { 'aria-label': t.more, onclick: () => actions(it, rerender) }, icon('more')))
+    audioManager ? h('button.iconbtn.flat', { 'aria-label': t.more, onclick: () => actions(it, rerender) }, icon('more')) : null)
 
   async function render() {
     const ws = await workerStatus().catch(() => null)
@@ -160,37 +151,28 @@ export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, 
       return
     }
     const rerender = () => void render()
-    if (variant === 'b') {
-      // B: grouped by state, the one being generated on top as a hero.
-      clear(head, meter)
-      const now = items.find(i => i.kind === 'generating')
-      const groups: [string, Item[]][] = [
-        [t.queued, items.filter(i => i.kind === 'queued' || i.kind === 'error')],
-        [t.audioReady, items.filter(i => i.kind === 'ready')],
-        [t.pausedLabel, items.filter(i => i.kind === 'paused')],
-      ]
-      clear(list,
-        now ? h('div.card.nowcard', { onclick: () => actions(now, rerender) },
-          cover(now.book),
-          h('div.mid',
-            h('div.eyebrow', h('span.pulse'), t.audioAheadGenerating),
-            h('div.ht', now.book.title),
-            h('div.ba', now.current ?? ''),
-            h('div.ba', meta(now)),
-            progress(now))) : null,
-        groups.filter(([, g]) => g.length).map(([label, g]) => [
-          h('div.sechd', h('span.t', label)),
-          h('div.card.glist', g.map(it => rowC(it, rerender))),
-        ]))
-      return
-    }
-    if (variant === 'c') {
-      clear(head)
-      clear(list, h('div.card.glist', items.map(it => rowC(it, rerender))), meter)
-      return
-    }
+    // Grouped by state, the book being generated on top (option B, picked by
+    // the user 2026-10-22 over a list of cards and a compact list).
     clear(head, meter)
-    clear(list, h('div.rows', items.map(it => rowA(it, rerender))))
+    const now = items.find(i => i.kind === 'generating')
+    const groups: [string, Item[]][] = [
+      [t.queued, items.filter(i => i.kind === 'queued' || i.kind === 'error')],
+      [t.audioReady, items.filter(i => i.kind === 'ready')],
+      [t.pausedLabel, items.filter(i => i.kind === 'paused')],
+    ]
+    clear(list,
+      now ? h('div.card.nowcard', { onclick: () => actions(now, rerender) },
+        cover(now.book),
+        h('div.mid',
+          h('div.eyebrow', h('span.pulse'), t.audioAheadGenerating),
+          h('div.ht', now.book.title),
+          h('div.ba', now.current ?? ''),
+          h('div.ba', meta(now)),
+          progress(now))) : null,
+      groups.filter(([, g]) => g.length).map(([label, g]) => [
+        h('div.sechd', h('span.t', label)),
+        h('div.card.glist', g.map(it => row(it, rerender))),
+      ]))
   }
 
   const off = onChange(changed => { if (changed.has('narrations') || changed.has('chapters')) void render() })

@@ -3,6 +3,7 @@ import { RATES } from '../audio/engine'
 import { t } from '../strings'
 import { h } from '../ui/dom'
 import { icon } from '../ui/icons'
+import { audioManager } from '../platform'
 
 export interface PlayerCard {
   el: HTMLElement
@@ -46,7 +47,7 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
   const el = h('div.card.player',
     h('div.ptop',
       h('div.pinfo', chapter, status),
-      h('button.iconbtn.flat', { title: t.voice, 'aria-label': t.voice, onclick: () => opts.voice() }, icon('wave')),
+      h('button.iconbtn.flat', { title: audioManager ? t.voice : t.narration, 'aria-label': audioManager ? t.voice : t.narration, onclick: () => opts.voice() }, icon('wave')),
       h('button.iconbtn.flat', { 'aria-label': t.close, onclick: () => opts.close() }, icon('close'))),
     h('div.ptrack', cur, seek, dur),
     h('div.pctl',

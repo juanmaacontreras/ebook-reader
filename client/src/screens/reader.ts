@@ -11,6 +11,7 @@ import { onChange } from '../data/sync'
 import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
 import { setBarsDark } from '../platform/theme'
+import { audioManager } from '../platform'
 import { onPrefs, prefs } from '../settings'
 import { t } from '../strings'
 import { toast } from '../ui/dialog'
@@ -260,6 +261,9 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       status: (m, busy) => player?.setStatus(m, busy),
       playing: p => { player?.setPlaying(p); shell.classList.toggle('playing', p) },
       time: (s, time, dur) => player?.setTime(s, time, dur),
+      // Phone/tablet: the chapter has no audio and can't be requested from here:
+      // a short message and the player closes (option B, picked 2026-10-22).
+      missing: () => { toast(t.chapterNoAudioPhone); void hidePlayer() },
     }).init()
   }
 
@@ -301,7 +305,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   listenBtn.onclick = async () => {
     if (!narr) { toast(t.openFailed); return }
     await narr.refresh()
-    if (!narr.status || narr.status.state === 'purged' || !narr.readyCount()) openNarrationSheet(book, narr, currentSentence().section, () => void showPlayer())
+    if (!narr.status || narr.status.state === 'purged' || !narr.readyCount()) openNarrationSheet(book, narr, currentSentence().section, audioManager ? () => void showPlayer() : undefined)
     else await showPlayer()
   }
 

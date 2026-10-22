@@ -6,7 +6,7 @@ import { kv } from '../data/db'
 import { narration as narrationStore } from '../data/store'
 import { onChange } from '../data/sync'
 import type { Book, Manifest, Narration, NarrationChapter, Timing } from '../data/types'
-import { isAndroid } from '../platform'
+import { audioManager, isAndroid } from '../platform'
 import { t } from '../strings'
 import { ensureChapter, lazySrc, resolveLazy } from './cache'
 import { SKIP_SECONDS, type AudioEngine, type Track } from './engine'
@@ -16,6 +16,8 @@ export interface NarrationHooks {
   status(message: string | null, busy?: boolean): void
   playing(playing: boolean): void
   time(section: number, time: number, duration: number): void
+  // A chapter without audio on a device that can't request it (phone/tablet).
+  missing(section: number): void
 }
 
 interface Loaded { section: number; timings: Timing[]; duration: number }
@@ -88,6 +90,12 @@ export class NarrationController {
     if (!this.row) return
     const ch = this.chapters.get(section)
     if (!ch) {
+      if (!audioManager) {
+        // Phone/tablet: only what already exists; nothing is requested.
+        this.hooks.missing(section)
+        this.pendingStart = null
+        return
+      }
       this.hooks.status(t.waitingChapter, true)
       await narrationStore.prioritize(this.book.id, section)
       this.pendingStart = { section, sentence }
@@ -133,7 +141,7 @@ export class NarrationController {
         const next = last ? this.nextSection(last.section) : null
         if (next == null) return
         const ch = this.chapters.get(next)
-        if (!ch) { void narrationStore.prioritize(this.book.id, next); return }
+        if (!ch) { if (audioManager) void narrationStore.prioritize(this.book.id, next); return }
         const { src, timings } = await ensureChapter(ch)
         this.loaded.push({ section: next, timings, duration: ch.duration })
         await this.eng.append(this.track(next, src))
