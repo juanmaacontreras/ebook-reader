@@ -43,6 +43,7 @@ export const t = {
   syncing: 'Sincronizando…',
   offline: 'Sin conexión',
   allHighlights: 'Resaltados',
+  continueReading: 'Seguir',
 
   // Book menu
   bookMenuTitle: 'Libro',

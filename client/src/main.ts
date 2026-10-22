@@ -2,6 +2,7 @@ import './styles/tokens.css'
 import './styles/app.css'
 import { App } from '@capacitor/app'
 import { configured, demo, supabase } from './data/supabase'
+import { db } from './data/db'
 import { startRealtime, stopRealtime, sync } from './data/sync'
 import { applyUiTheme } from './platform/theme'
 import { checkForUpdate } from './platform/updater'
@@ -28,6 +29,7 @@ async function route(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (demo) (window as unknown as { __atril: unknown }).__atril = { db }  // screenshot seeding
   await loadPrefs()
   applyUiTheme()
   const { data } = await supabase.auth.getSession()

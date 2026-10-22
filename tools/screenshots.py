@@ -24,7 +24,23 @@ DEVICES = {
 }
 
 
-async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant: str | None, errors: list[str]) -> None:
+SEED = """async ([progress]) => {
+  const db = window.__atril.db
+  const books = await db.all('books')
+  const now = Date.now()
+  for (const [k, b] of books.entries()) {
+    const p = progress[k % progress.length]
+    if (p === null) continue
+    b.status = p >= 1 ? 'finished' : 'reading'
+    await db.put('books', b)
+    if (p < 1) await db.put('positions', { book_id: b.id, cfi: 'epubcfi(/6/2)', section: 0, sentence: 0, fraction: p,
+      device: 'x', updated_at: new Date(now - k * 3600e3).toISOString() })
+  }
+}"""
+
+
+async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant: str | None, errors: list[str],
+                library: Path | None = None, only_library: bool = False) -> None:
     ctx = await browser.new_context(color_scheme=scheme, **DEVICES[device])
     page = await ctx.new_page()
     page.on("pageerror", lambda e: errors.append(f"{device}/{scheme}: {e}"))
@@ -32,12 +48,23 @@ async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant:
     q = "?demo" + (f"&variant={variant}" if variant else "")
     await page.goto(f"{url}/{q}#/")
     await page.wait_for_selector(".fab")
-    await page.set_input_files("input[type=file]", str(EPUB))
-    await page.wait_for_selector(".bookc", timeout=20000)
-    await page.wait_for_timeout(600)
+    files = sorted(str(f) for f in library.glob("*.epub")) if library else [str(EPUB)]
+    await page.set_input_files("input[type=file]", files)
+    for _ in range(240):  # imports run one after another
+        if await page.evaluate("window.__atril.db.all('books').then(b => b.length)") >= len(files):
+            break
+        await page.wait_for_timeout(250)
+    if library:
+        await page.evaluate(SEED, [[0.37, 0.72, None, 1, None, 0.08]])
+        await page.reload()
+        await page.wait_for_selector(".bookc, .brow")
+    await page.wait_for_timeout(1500)
     tag = f"{device}-{scheme}" + (f"-{variant}" if variant else "")
     await page.screenshot(path=out / f"{tag}-library.png")
-    await page.click(".bookc")
+    if only_library:
+        await ctx.close()
+        return
+    await page.click(".bookc, .brow")
     await page.wait_for_selector("foliate-view", timeout=20000)
     await page.wait_for_timeout(1500)
     await page.screenshot(path=out / f"{tag}-reader.png")
@@ -57,6 +84,8 @@ async def main() -> None:
     ap.add_argument("--variant")
     ap.add_argument("--devices", default="phone,tablet")
     ap.add_argument("--schemes", default="light,dark")
+    ap.add_argument("--library", help="folder of EPUBs to import instead of the sample (seeds some progress)")
+    ap.add_argument("--only-library", action="store_true")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -66,7 +95,8 @@ async def main() -> None:
         try:
             for device in args.devices.split(","):
                 for scheme in args.schemes.split(","):
-                    await shoot(browser, args.url, out, device, scheme, args.variant, errors)
+                    await shoot(browser, args.url, out, device, scheme, args.variant, errors,
+                                Path(args.library) if args.library else None, args.only_library)
         finally:
             await browser.close()
             for e in errors:
