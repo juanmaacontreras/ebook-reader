@@ -154,6 +154,10 @@ create table if not exists public.reading_sessions (
   words int not null default 0,        -- words advanced (sentence manifest)
   updated_at timestamptz not null default now()
 );
+-- Reading speed comes only from "clean" pages (not skimmed, not left open,
+-- app in the foreground): their words and time, kept apart from the totals.
+alter table public.reading_sessions add column if not exists pace_words int not null default 0;
+alter table public.reading_sessions add column if not exists pace_seconds int not null default 0;
 create index if not exists reading_sessions_book on public.reading_sessions (book_id);
 
 -- What the PC is doing, so the app can show it ("PC conectada", voices).

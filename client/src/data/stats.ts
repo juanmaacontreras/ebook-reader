@@ -4,7 +4,7 @@
 import { gunzipJson } from '../book/manifest'
 import { kv } from './db'
 import { local } from './files'
-import { sessions, wordIndex } from './sessions'
+import { langOf, PACE, sessions, wordIndex } from './sessions'
 import { books, highlights, positions } from './store'
 import type { Book, DeviceKind, Manifest, ReadingSession } from './types'
 
@@ -19,6 +19,19 @@ export interface BookStats {
   last: Date | null
   highlights: number
   notes: number
+  wpm: number | null          // clean pages of this book
+}
+
+// Reading speed in one language: now (last 30 days, or 90 if that's too little),
+// a reference to compare with (3 months earlier, else the first month with
+// data) and its evolution week by week (month by month after half a year).
+export interface LangPace {
+  lang: string
+  now: number | null
+  before: number | null
+  beforeKind: 'months3' | 'start'
+  series: { start: Date; wpm: number; minutes: number }[]
+  monthly: boolean
 }
 
 export interface Stats {
@@ -27,7 +40,7 @@ export interface Stats {
   daily: Map<string, Split>                   // local date key → seconds
   finished: Book[]                            // this year, newest first
   goal: number | null
-  pace: { read: number | null; listen: number | null }  // words per minute
+  pace: { read: LangPace[]; listen: number | null }  // words per minute; read per language, most read first
   rate: number
   left: { book: Book; read: number | null; listen: number | null }[]  // seconds
   hours: number[]                             // seconds per hour of day
@@ -37,8 +50,9 @@ export interface Stats {
 
 export const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 export const splitTotal = (s: Split) => s.read + s.listen
-const PACE_DAYS = 90
-const PACE_MIN_SECONDS = 10 * 60
+const DAY = 86400e3
+const PACE_MIN_SECONDS = 10 * 60     // a speed needs at least this much clean reading
+const POINT_MIN_SECONDS = 20 * 60    // a week (or month) in the chart too
 
 export async function loadStats(): Promise<Stats> {
   const all = (await sessions.all()).filter(s => s.seconds > 0)
@@ -47,8 +61,8 @@ export async function loadStats(): Promise<Stats> {
   const hours = Array(24).fill(0) as number[]
   const devices = new Map<DeviceKind, number>()
   const byBook = new Map<string, { seconds: number; first: Date; last: Date }>()
-  const since = Date.now() - PACE_DAYS * 86400e3
-  const pace = { read: [0, 0], listen: [0, 0] }
+  const since = Date.now() - PACE.habitualDays * DAY
+  const listen = [0, 0]
   for (const s of all) {
     const start = new Date(s.started_at)
     const k = dayKey(start)
@@ -63,11 +77,21 @@ export async function loadStats(): Promise<Stats> {
       if (!b) byBook.set(s.book_id, { seconds: s.seconds, first: start, last: end })
       else { b.seconds += s.seconds; if (start < b.first) b.first = start; if (end > b.last) b.last = end }
     }
-    if (start.getTime() > since && s.words > 0) { pace[s.kind][0] += s.words; pace[s.kind][1] += s.seconds }
+    if (s.kind === 'listen' && start.getTime() > since && s.words > 0) { listen[0] += s.words; listen[1] += s.seconds }
   }
   const wpm = ([w, sec]: number[]) => sec >= PACE_MIN_SECONDS ? Math.round(w / (sec / 60)) : null
 
   const lib = await books.all()
+  const bookById = new Map(lib.map(b => [b.id, b]))
+  const clean = all.filter(s => s.kind === 'read' && s.pace_seconds > 0 && s.book_id && bookById.has(s.book_id))
+  const langs = new Map<string, ReadingSession[]>()
+  for (const s of clean) {
+    const l = langOf(bookById.get(s.book_id!))
+    langs.set(l, [...(langs.get(l) ?? []), s])
+  }
+  const read = [...langs].map(([l, ss]) => langPace(l, ss))
+    .sort((a, b) => clean.filter(s => langOf(bookById.get(s.book_id!)) === b.lang).length - clean.filter(s => langOf(bookById.get(s.book_id!)) === a.lang).length)
+  const bookPace = (id: string) => wpm(clean.filter(s => s.book_id === id).reduce((a, s) => [a[0] + s.pace_words, a[1] + s.pace_seconds], [0, 0]))
   const hls = await highlights.all()
   const finished = lib.filter(b => b.status === 'finished' && b.finished_at && new Date(b.finished_at).getFullYear() === year)
     .sort((a, b) => b.finished_at!.localeCompare(a.finished_at!))
@@ -77,17 +101,22 @@ export async function loadStats(): Promise<Stats> {
       const x = byBook.get(b.id)
       const mine = hls.filter(h => h.book_id === b.id)
       return { book: b, seconds: x?.seconds ?? 0, first: x?.first ?? null, last: x?.last ?? (b.finished_at ? new Date(b.finished_at) : null),
-        highlights: mine.length, notes: mine.filter(h => h.note).length }
+        highlights: mine.length, notes: mine.filter(h => h.note).length, wpm: bookPace(b.id) }
     })
     .sort((a, b) => (b.last?.getTime() ?? 0) - (a.last?.getTime() ?? 0))
 
-  const p = { read: wpm(pace.read), listen: wpm(pace.listen) }
+  const p = { read, listen: wpm(listen) }
+  const habitual = (b: Book) => {
+    const ss = langs.get(langOf(b)) ?? []
+    return wpm(ss.filter(s => Date.parse(s.started_at) > since).reduce((a, s) => [a[0] + s.pace_words, a[1] + s.pace_seconds], [0, 0]))
+  }
   const rate = (await kv.get<number>('rate')) ?? 1
   const left: Stats['left'] = []
   for (const b of lib.filter(b => b.status === 'reading')) {
     const words = await wordsLeft(b)
     if (words == null) continue
-    left.push({ book: b, read: p.read ? words / p.read * 60 : null, listen: p.listen ? words / p.listen * 60 : null })
+    const r = habitual(b)
+    left.push({ book: b, read: r ? words / r * 60 : null, listen: p.listen ? words / p.listen * 60 : null })
   }
 
   return {
@@ -98,6 +127,34 @@ export async function loadStats(): Promise<Stats> {
     devices: [...devices].sort((a, b) => b[1] - a[1]),
     perBook,
   }
+}
+
+export function langPace(lang: string, ss: ReadingSession[], now = Date.now()): LangPace {
+  const win = (from: number, to: number) => {
+    let w = 0, sec = 0
+    for (const s of ss) { const t = Date.parse(s.started_at); if (t >= from && t < to) { w += s.pace_words; sec += s.pace_seconds } }
+    return sec >= PACE_MIN_SECONDS ? Math.round(w / (sec / 60)) : null
+  }
+  const current = win(now - 30 * DAY, now) ?? win(now - 90 * DAY, now)
+  let before = win(now - 120 * DAY, now - 90 * DAY)
+  let beforeKind: LangPace['beforeKind'] = 'months3'
+  const first = Math.min(...ss.map(s => Date.parse(s.started_at)))
+  if (before === null && first < now - 60 * DAY) { before = win(first, first + 30 * DAY); beforeKind = 'start' }
+  // Weekly points for the last half year; monthly when the history is longer.
+  const monthly = first < now - 182 * DAY
+  const buckets = new Map<number, { start: Date; w: number; s: number }>()
+  for (const s of ss) {
+    const d = new Date(s.started_at)
+    const start = monthly ? new Date(d.getFullYear(), d.getMonth(), 1) : new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7)
+    const b = buckets.get(start.getTime()) ?? { start, w: 0, s: 0 }
+    b.w += s.pace_words; b.s += s.pace_seconds
+    buckets.set(start.getTime(), b)
+  }
+  const series = [...buckets.values()].filter(b => b.s >= POINT_MIN_SECONDS)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+    .slice(monthly ? -24 : -26)
+    .map(b => ({ start: b.start, wpm: Math.round(b.w / (b.s / 60)), minutes: Math.round(b.s / 60) }))
+  return { lang, now: current, before, beforeKind, series, monthly }
 }
 
 export const setGoal = (n: number | null) => kv.set('yearGoal', n)
