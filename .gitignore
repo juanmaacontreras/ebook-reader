@@ -3,3 +3,4 @@ client/dist/
 client/src-tauri/target/
 client/src-tauri/gen/
 .DS_Store
+__pycache__/

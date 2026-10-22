@@ -13,7 +13,7 @@ import { library, local, paths } from './files'
 import { demo, supabase, userId } from './supabase'
 import type { Book, Local, NarrationChapter } from './types'
 
-type Table = 'books' | 'positions' | 'highlights' | 'narrations' | 'narration_chapters'
+type Table = 'books' | 'positions' | 'highlights' | 'narrations' | 'narration_chapters' | 'reading_sessions'
 
 interface Spec { table: Table; store: StoreName; select: string; lww: boolean }
 
@@ -24,8 +24,9 @@ const SPECS: Spec[] = [
   { table: 'narrations', store: 'narrations', select: '*', lww: true },
   // Timings (the sentence map) are fetched with the audio, not on every pull.
   { table: 'narration_chapters', store: 'chapters', select: 'book_id,voice,section,audio_path,duration,bytes,created_at,synced_at', lww: false },
+  { table: 'reading_sessions', store: 'sessions', select: '*', lww: true },
 ]
-const PUSHED: Table[] = ['books', 'positions', 'highlights', 'narrations']
+const PUSHED: Table[] = ['books', 'positions', 'highlights', 'narrations', 'reading_sessions']
 const LOCAL_FIELDS = ['_dirty', '_upload', 'synced_at', 'timings', 'cached']
 // Columns the worker owns: never pushed from a device.
 const WORKER_FIELDS: Partial<Record<Table, string[]>> = { narrations: ['state', 'current_section', 'error'] }

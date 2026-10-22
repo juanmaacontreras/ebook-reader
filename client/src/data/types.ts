@@ -31,6 +31,21 @@ export interface Position {
   updated_at: string
 }
 
+// A stretch of reading or listening on one device (stats). See supabase/schema.sql.
+export type DeviceKind = 'phone' | 'tablet' | 'pc'
+export interface ReadingSession {
+  id: string
+  book_id: string | null
+  kind: 'read' | 'listen'
+  device: string | null
+  device_kind: DeviceKind | null
+  started_at: string
+  ended_at: string
+  seconds: number
+  words: number
+  updated_at: string
+}
+
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'orange' | 'purple'
 export const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'blue', 'orange', 'purple']
 

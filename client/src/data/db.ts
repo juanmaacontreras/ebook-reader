@@ -2,13 +2,13 @@
 // it with Supabase. Blobs (EPUBs, covers, audio on web/desktop) go in 'files'.
 
 const NAME = 'atril'
-const VERSION = 1
-export const STORES = ['books', 'positions', 'highlights', 'narrations', 'chapters', 'kv', 'files'] as const
+const VERSION = 2
+export const STORES = ['books', 'positions', 'highlights', 'narrations', 'chapters', 'kv', 'files', 'sessions'] as const
 export type StoreName = (typeof STORES)[number]
 
 const KEYS: Record<StoreName, string | string[] | null> = {
   books: 'id', positions: 'book_id', highlights: 'id', narrations: 'book_id',
-  chapters: ['book_id', 'voice', 'section'], kv: null, files: null,
+  chapters: ['book_id', 'voice', 'section'], kv: null, files: null, sessions: 'id',
 }
 
 let dbp: Promise<IDBDatabase> | null = null
@@ -23,7 +23,7 @@ function open(): Promise<IDBDatabase> {
         const key = KEYS[s]
         const store = db.createObjectStore(s, key ? { keyPath: key } : undefined)
         if (s === 'highlights') store.createIndex('book_id', 'book_id')
-        if (s === 'chapters') store.createIndex('book_id', 'book_id')
+        if (s === 'chapters' || s === 'sessions') store.createIndex('book_id', 'book_id')
       }
     }
     req.onsuccess = () => resolve(req.result)

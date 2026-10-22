@@ -47,6 +47,8 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     db.ts                 IndexedDB (offline-first local database + blob store)
     sync.ts               pull/push with Supabase + Realtime (see "Sync")
     store.ts              app operations (status, positions, highlights, narration requests)
+    sessions.ts           reading sessions (time + words read/listened per device) for stats
+    stats.ts              numbers for the Resumen screen, computed from the synced sessions
     files.ts              remote file provider (Supabase Storage; Google Drive later) + local blobs
   src/book/
     sentences.ts          sentence segmentation — shared by import (manifest) and reader (highlight/tap)
@@ -60,13 +62,14 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     nativeEngine.ts       bridge to the Android plugin (NarrationPlayer)
     cache.ts              this device's audio copy (files on Android, IndexedDB elsewhere)
     voices.ts             fallback voice list
-  src/screens/            auth, library, reader, player, toc, highlights, narration, readingSettings, settings
-  src/platform/           platform detection, UI theme + system bars, self-updater
+  src/screens/            auth, library, reader, player, toc, highlights, narration, readingSettings, settings,
+                          audios (#/audios), stats (#/stats, "Resumen")
+  src/platform/           platform detection, UI theme + system bars, self-updater, keepAwake
   android/                Capacitor Android project (committed). Own native code in
                           app/src/main/java/com/atril/reader/: PlaybackService (Media3),
-                          NarrationPlayerPlugin, AppUpdatePlugin, MainActivity
+                          NarrationPlayerPlugin, AppUpdatePlugin, ScreenPlugin, MainActivity
   src-tauri/              Tauri desktop shell (updater + process plugins only)
-  tests/                  vitest (jsdom): segmentation, CFI round trip, manifest of the sample EPUB
+  tests/                  vitest (jsdom): segmentation, CFI round trip, manifest of the sample EPUB, sessions
   tests/fixtures/muestra.epub   small Spanish EPUB (regenerate: tests/make_sample_epub.py)
 tts-worker/               narration worker for the PC (Python 3.12, uv)
   worker/main.py          the loop (heartbeat, sweep finished books, pick chapter, generate, upload)
@@ -270,6 +273,22 @@ screens and bottom sheets on phones. The reading surface has its own themes
   phone. A chapter without audio on the phone: a toast and the player closes (option B,
   picked over a warning in the player and a notice replacing the controls).
   Preview the phone UI in a browser with `?demo&as=phone`.
+
+- 2026-10-22: speed control = a sheet with −/+ in 0.05 steps, a 0.5–2.5× slider
+  and presets (option B, over a preset grid and an inline stepper). Reader footer:
+  "Quedan N páginas del capítulo · P%" (option B, over "3 de 12" and estimated
+  book pages). The screen stays on while a book is open, released after 10 min
+  without a page turn or tap (`platform/keepAwake.ts`).
+- 2026-10-22: stats ("Resumen", `#/stats`, chart button in the library header),
+  layout A (one column of cards, two on wide screens; over KPI tiles and tabs).
+  Content the user chose: time per week/month/year vs the previous period, daily
+  bars read/listened, year calendar, finished books + optional yearly goal (local
+  kv `yearGoal`), words per minute, time left per book, hours of day, devices,
+  per-book line. No streaks ("capaz un día leo un libro físico"). Data:
+  `reading_sessions`, written by `SessionTracker` from page turns and the voice's
+  progress: gaps up to 5 min (reading) / 30 s (listening) count as time, a 10 min
+  break starts a new session, jumps don't count as words. Read/listen colors
+  `--c-read` / `--c-listen` (blue/orange, CVD-checked in both themes).
 
 ## Current state (2026-10-21)
 

@@ -15,7 +15,7 @@ import { loadPrefs } from './settings'
 const root = document.getElementById('app')!
 let teardown: (() => void) | null = null
 
-// Routes: #/ (library) and #/book/<id> (reader).
+// Routes: #/ (library), #/book/<id> (reader), #/audios, #/stats.
 async function route(): Promise<void> {
   teardown?.()
   teardown = null
@@ -24,6 +24,10 @@ async function route(): Promise<void> {
     applyUiTheme()
     const { audiosScreen } = await import('./screens/audios')
     teardown = audiosScreen(root, id => (location.hash = `#/book/${id}`), () => history.back())
+  } else if (location.hash === '#/stats') {
+    applyUiTheme()
+    const { statsScreen } = await import('./screens/stats')
+    teardown = statsScreen(root, id => (location.hash = `#/book/${id}`), () => history.back())
   } else if (m) {
     const { readerScreen } = await import('./screens/reader')
     teardown = await readerScreen(root, m[1], () => history.length > 1 ? history.back() : (location.hash = '#/'))

@@ -32,6 +32,7 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
     h('div.hd',
       h('div', h('div.title', t.library), sub),
       h('div.spacer'),
+      h('button.iconbtn', { title: t.stats, 'aria-label': t.stats, onclick: () => { location.hash = '#/stats' } }, icon('chart')),
       h('button.iconbtn', { title: t.audios, 'aria-label': t.audios, onclick: () => { location.hash = '#/audios' } }, icon('headphones')),
       h('button.iconbtn', { title: t.allHighlights, 'aria-label': t.allHighlights, onclick: () => openHighlightsPanel(null, openBook) }, icon('highlight')),
       h('button.iconbtn', { title: t.settings, 'aria-label': t.settings, onclick: () => openSettings() }, icon('settings'))),
