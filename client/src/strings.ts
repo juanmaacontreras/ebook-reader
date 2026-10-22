@@ -262,9 +262,6 @@ export const t = {
   notesN: (n: number) => n === 1 ? '1 nota' : `${n} notas`,
   statsEmpty: 'Todavía no hay lecturas registradas',
   statsEmptyHint: 'Desde esta versión, Atril anota cuánto leés y escuchás. Volvé en unos días.',
-  tabTime: 'Tiempo',
-  tabBooks: 'Libros',
-  tabHabits: 'Hábitos',
 
   // Generic
   error: 'Algo salió mal',

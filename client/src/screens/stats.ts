@@ -27,8 +27,6 @@ export function statsScreen(root: HTMLElement, openBook: (id: string) => void, g
     body))
 
   let period: Period = 'week'
-  let tab = 'time'
-  const variant = document.documentElement.dataset.variant ?? 'a'  // DESIGN PROPOSAL (pending)
 
   async function render() {
     const st = await loadStats()
@@ -48,30 +46,16 @@ export function statsScreen(root: HTMLElement, openBook: (id: string) => void, g
         h('span', h('i.sw.read'), `${t.readLabel} ${t.dur(now.read)}`),
         h('span', h('i.sw.listen'), `${t.listenLabel} ${t.dur(now.listen)}`))
     }
-    const timeCard = (withSeg: boolean) => {
+    const timeCard = () => {
       const { now } = periodTotals(st, period)
       return h('div.card.scard.span2',
-        withSeg ? segmented(PERIODS, period, v => { period = v; rerender() }, 'small') : null,
+        segmented(PERIODS, period, v => { period = v; rerender() }, 'small'),
         h('div.eyebrow', NOW_LABEL[period]),
         h('div.hero.num', t.dur(splitTotal(now))),
         delta(period),
         split(period),
         bars(periodBuckets(st, period)))
     }
-    const tiles = () => h('div.tiles.span2', PERIODS.map(([p]) => {
-      const { now } = periodTotals(st, p)
-      return h('button.card.tile' + (p === period ? '.active' : ''), { onclick: () => { period = p; rerender() } },
-        h('div.eyebrow', NOW_LABEL[p]), h('div.tv.num', t.durShort(splitTotal(now))), delta(p))
-    }), h('div.card.tile', h('div.eyebrow', t.finishedBooks), h('div.tv.num', String(st.finished.length)),
-      h('div.delta', st.goal ? t.goalOf(st.goal) : String(new Date().getFullYear()))))
-    const barsCard = () => {
-      const { now } = periodTotals(st, period)
-      return h('div.card.scard.span2',
-        h('div.cardhd', h('b', NOW_LABEL[period]), h('span.num', t.dur(splitTotal(now)))),
-        split(period),
-        bars(periodBuckets(st, period)))
-    }
-
     const cards = {
       calendar: () => h('div.card.scard.span2', h('div.cardhd', h('b', t.calendar)), calendar(st)),
       finished: () => {
@@ -114,17 +98,9 @@ export function statsScreen(root: HTMLElement, openBook: (id: string) => void, g
         })),
     }
 
-    if (variant === 'b') {
-      clear(body, h('div.sgrid', tiles(), barsCard(), cards.calendar(), cards.finished(), cards.pace(), cards.left(), cards.when(), cards.devices(), cards.perBook()))
-    } else if (variant === 'c') {
-      const tabs = segmented([['time', t.tabTime], ['books', t.tabBooks], ['habits', t.tabHabits]], tab, v => { tab = v; rerender() })
-      const content = tab === 'time' ? [timeCard(true), cards.calendar()]
-        : tab === 'books' ? [cards.finished(), cards.left(), cards.perBook()]
-        : [cards.pace(), cards.when(), cards.devices()]
-      clear(body, h('div.stabs', tabs), h('div.sgrid', content))
-    } else {
-      clear(body, h('div.sgrid', timeCard(true), cards.calendar(), cards.finished(), cards.pace(), cards.left(), cards.when(), cards.devices(), cards.perBook()))
-    }
+    // One column of cards, two on wide screens (option A, picked 2026-10-22
+    // over KPI tiles on top and three tabs).
+    clear(body, h('div.sgrid', timeCard(), cards.calendar(), cards.finished(), cards.pace(), cards.left(), cards.when(), cards.devices(), cards.perBook()))
     const cal = body.querySelector('.cal')
     if (cal) cal.scrollLeft = cal.scrollWidth
   }

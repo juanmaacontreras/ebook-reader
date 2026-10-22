@@ -321,7 +321,6 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .stats .hd { gap:12px; }
 .sgrid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:16px; }
 @media (min-width:760px) { .sgrid { grid-template-columns:1fr 1fr; } .sgrid .span2 { grid-column:span 2; } }
-.stabs { margin-top:16px; }
 .scard { padding:16px; min-width:0; }
 .scard .seg { margin-bottom:14px; }
 .scard .eyebrow { font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
@@ -390,9 +389,4 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .drow .dtrack { flex:1; height:10px; border-radius:5px; background:var(--surface2); overflow:hidden; }
 .drow .dfill { height:100%; background:var(--c-read); border-radius:5px; }
 .drow .dv { width:38px; text-align:right; font-size:12.5px; color:var(--inkSoft); font-weight:700; }
-.tiles { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-@media (min-width:760px) { .tiles { grid-template-columns:repeat(4, 1fr); } }
-.tile { padding:14px 16px; text-align:left; border:none; color:var(--ink); font:inherit; cursor:pointer; }
-.tile.active { background:var(--accentSoft); }
-.tile .tv { font-size:26px; font-weight:800; letter-spacing:-.8px; margin-top:4px; }
 .ghint { font-size:13.5px; color:var(--inkSoft); margin:0 0 12px; }
