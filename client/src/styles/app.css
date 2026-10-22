@@ -121,7 +121,6 @@ textarea.field { resize:vertical; min-height:96px; line-height:1.4; }
 .cover { aspect-ratio:2/3; border-radius:var(--r-sm); background:var(--surface2); overflow:hidden; position:relative;
   box-shadow:var(--shadow); display:flex; align-items:flex-end; }
 .cover img { width:100%; height:100%; object-fit:cover; display:block; }
-.cover img.bg { display:none; }
 .cover .ph { position:absolute; inset:0; padding:14px 12px; display:flex; flex-direction:column; justify-content:space-between;
   background:color-mix(in srgb, var(--c, var(--indigo)) 22%, var(--card)); color:var(--ink); }
 .cover .ph b { font-size:15px; font-weight:800; letter-spacing:-.3px; line-height:1.2; overflow-wrap:anywhere;
@@ -256,25 +255,19 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .herocard .prog .track { background:color-mix(in srgb, var(--indigo) 18%, var(--card)); }
 .hbtns { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
 
-/* ===== Cover proposals (pending the user's pick) =========================== */
-/* A: whole cover, natural proportions; bigger cover in the keep-reading card. */
-:root[data-variant="a"] .grid { align-items:start; }
-:root[data-variant="a"] .bookc .cover:has(img) { aspect-ratio:auto; background:none; }
-:root[data-variant="a"] .cover:has(img) img.fg { height:auto; object-fit:contain; }
-:root[data-variant="a"] .cover.hero-cover { width:40%; max-width:180px; aspect-ratio:auto; align-self:flex-start; }
-:root[data-variant="a"] .herocard { gap:16px; }
-/* B: on phones the keep-reading card stacks: large cover on top, info below. */
-:root[data-variant="b"] .grid { align-items:start; }
-:root[data-variant="b"] .bookc .cover:has(img) { aspect-ratio:auto; background:none; }
-:root[data-variant="b"] .cover:has(img) img.fg { height:auto; object-fit:contain; }
+/* ===== Covers keep their real proportions ==================================
+   Real covers are ~1:1.6, taller than the 2:3 tiles, and were cropped. The tile
+   ratio only shapes placeholders now. On phones the keep-reading card stacks
+   (large cover on top, info below): option B, picked by the user 2026-10-22
+   over a bigger side-by-side cover (A) and fixed tiles with a blurred fill (C). */
+.grid { align-items:start; }
+.bookc .cover:has(img) { aspect-ratio:auto; background:none; }
+.cover:has(img) img { height:auto; object-fit:contain; }
+.cover.hero-cover:has(img) { aspect-ratio:auto; }
 @media (max-width:600px) {
-  :root[data-variant="b"] .herocard { flex-direction:column; align-items:center; text-align:center; padding:20px 18px 18px; }
-  :root[data-variant="b"] .cover.hero-cover { width:58%; max-width:230px; aspect-ratio:auto; }
-  :root[data-variant="b"] .herocard .mid { width:100%; align-items:center; }
-  :root[data-variant="b"] .herocard .prog { width:100%; }
-  :root[data-variant="b"] .hbtns { justify-content:center; }
+  .herocard { flex-direction:column; align-items:center; text-align:center; padding:20px 18px 18px; }
+  .cover.hero-cover { width:58%; max-width:230px; }
+  .herocard .mid { width:100%; align-items:center; }
+  .herocard .prog { width:100%; }
+  .hbtns { justify-content:center; }
 }
-/* C: fixed 2:3 tiles, the whole cover inside, its own blurred copy behind. */
-:root[data-variant="c"] .cover img.bg { display:block; position:absolute; inset:-12px; width:calc(100% + 24px); height:calc(100% + 24px); filter:blur(14px) saturate(1.2); opacity:.7; }
-:root[data-variant="c"] .cover img.fg { position:relative; object-fit:contain; }
-:root[data-variant="c"] .cover.hero-cover { width:132px; }
