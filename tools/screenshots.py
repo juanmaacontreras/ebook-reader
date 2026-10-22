@@ -19,6 +19,7 @@ from playwright.async_api import async_playwright
 ROOT = Path(__file__).resolve().parents[1]
 EPUB = ROOT / "client" / "tests" / "fixtures" / "muestra.epub"
 DEVICES = {
+    "phone-narrow": {"viewport": {"width": 360, "height": 780}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True},
     "phone": {"viewport": {"width": 400, "height": 860}, "device_scale_factor": 2.5, "is_mobile": True, "has_touch": True},
     "tablet": {"viewport": {"width": 1280, "height": 800}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True},
 }

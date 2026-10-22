@@ -146,7 +146,7 @@ KOKORO_NAMES = {
     "af_nicole": "Nicole", "am_michael": "Michael", "am_fenrir": "Fenrir", "bf_emma": "Emma",
     "bm_george": "George", "bm_fable": "Fable",
 }
-CLONE_LABELS = {"ar_tomas": "Tomás (rioplatense)", "ar_elena": "Elena (rioplatense)", "en_andrew": "Andrew", "en_sonia": "Sonia"}
+CLONE_LABELS = {"ar_tomas": "Tomás", "ar_elena": "Elena", "en_andrew": "Andrew", "en_sonia": "Sonia"}
 
 
 def available_voices() -> list[dict]:
@@ -158,9 +158,10 @@ def available_voices() -> list[dict]:
         name = ref.stem
         label = CLONE_LABELS.get(name, name.replace("_", " ").title())
         lang = "en" if name.startswith("en_") else "es"
-        if lang == "es":
-            voices.append({"id": f"chatterbox-latam:{name}", "label": f"{label} · LatAm", "languages": ["es"], "cloned": True})
-        voices.append({"id": f"chatterbox-v3:{name}", "label": label, "languages": [lang], "cloned": True})
+        # Spanish clips go through the LatAm finetune only (better Spanish than the
+        # general model, and one entry per voice keeps the app's list short).
+        engine = "chatterbox-latam" if lang == "es" else "chatterbox-v3"
+        voices.append({"id": f"{engine}:{name}", "label": label, "languages": [lang], "cloned": True})
     return voices
 
 

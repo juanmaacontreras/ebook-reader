@@ -1,7 +1,9 @@
 import type { NarrationController } from '../audio/controller'
-import { cachedCount, deleteBookAudio } from '../audio/cache'
-import { DEFAULT_VOICES, defaultVoice } from '../audio/voices'
+import { cachedCount, deleteBookAudio, downloadAll } from '../audio/cache'
+import { DEFAULT_VOICES, defaultVoice, featuredVoices } from '../audio/voices'
 import { narration, workerStatus } from '../data/store'
+import { db } from '../data/db'
+import type { NarrationChapter } from '../data/types'
 import type { Book, VoiceInfo } from '../data/types'
 import { t } from '../strings'
 import { confirmDialog, openDialog } from '../ui/dialog'
@@ -17,7 +19,10 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
     const actions = h('div.dbtns')
     let selected = narr.voice ?? defaultVoice(lang)
     let voices: VoiceInfo[] = DEFAULT_VOICES
-    body.append(statusBox, h('label.flabel', t.voice), voicesBox, actions)
+    let showAll = false
+    let downloading: string | null = null
+    const downloadBox = h('div')
+    body.append(statusBox, downloadBox, h('label.flabel', t.voice), voicesBox, actions)
 
     const render = async () => {
       await narr.refresh()
@@ -39,10 +44,38 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
           : row.state === 'ready' || done >= total ? `${t.audioReady}. ${t.audioDownloaded(local, total)}`
           : done ? t.audioGenerating(done, total) : t.audioQueued))
       const usable = voices.filter(v => v.languages.includes(lang))
-      clear(voicesBox, usable.map(v => h('button.voice' + (v.id === selected ? '.sel' : ''), { onclick: () => { selected = v.id; void render() } },
+      const featured = featuredVoices(lang, row?.voice ?? null)
+      const shown = showAll ? usable : usable.filter(v => featured.includes(v.id) || v.id === selected)
+      const voiceBtn = (v: VoiceInfo) => h('button.voice' + (v.id === selected ? '.sel' : ''), { onclick: () => { selected = v.id; void render() } },
         icon(v.cloned ? 'wave' : 'headphones'),
         h('span.vn', v.label, h('small', v.cloned ? t.voiceCloned : t.voiceFast)),
-        v.id === row?.voice ? icon('check') : null)))
+        v.id === row?.voice ? icon('check') : null)
+      clear(voicesBox, shown.map(voiceBtn),
+        usable.length > shown.length || showAll
+          ? h('button.textbtn', { style: 'align-self:flex-start', onclick: () => { showAll = !showAll; void render() } }, showAll ? t.fewerVoices : t.moreVoices)
+          : null)
+
+      // This device's copy: download everything that's ready, in one go.
+      const ready = row ? (await db.byIndex<NarrationChapter & { cached?: boolean }>('chapters', 'book_id', book.id)).filter(c => c.voice === row.voice) : []
+      const missing = ready.filter(c => !c.cached)
+      const mb = Math.max(1, Math.round(missing.reduce((a, c) => a + c.bytes, 0) / 1e6))
+      const downloadAllBtn = h('button.btn.tonal.small', {
+        disabled: downloading !== null,
+        onclick: async () => {
+          downloading = t.downloadingAll(0, ready.length)
+          void render()
+          try {
+            await downloadAll(book.id, row!.voice, (n, of) => {
+              downloading = t.downloadingAll(n, of)
+              const b = downloadBox.querySelector('button')
+              if (b) b.textContent = downloading
+            })
+          } finally { downloading = null; void render() }
+        },
+      }, icon('download'), downloading ?? t.downloadAllAudio(mb))
+      clear(downloadBox, !ready.length ? null
+        : !missing.length ? h('p.muted', { style: 'font-size:13.5px' }, t.allAudioHere)
+        : downloadAllBtn)
 
       const sameVoice = row && row.voice === selected
       const generating = row && row.state !== 'ready' && row.state !== 'purged' && done < total

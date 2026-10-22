@@ -89,3 +89,16 @@ export async function deleteBookAudio(bookId: string): Promise<void> {
 export async function cachedCount(bookId: string, voice: string): Promise<number> {
   return (await db.byIndex<Chapter>('chapters', 'book_id', bookId)).filter(c => c.voice === voice && c.cached).length
 }
+
+// "Bajar todo el audio": every chapter that's ready in the cloud, before a trip
+// without signal. Already-downloaded chapters are skipped.
+export async function downloadAll(bookId: string, voice: string, onProgress: (done: number, total: number) => void): Promise<void> {
+  const chapters = (await db.byIndex<Chapter>('chapters', 'book_id', bookId)).filter(c => c.voice === voice).sort((a, b) => a.section - b.section)
+  let done = 0
+  for (const c of chapters) {
+    onProgress(done, chapters.length)
+    if (!isCached(c)) await ensureChapter(c)
+    done++
+  }
+  onProgress(done, chapters.length)
+}
