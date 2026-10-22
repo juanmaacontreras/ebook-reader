@@ -376,6 +376,7 @@ class Worker:
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
         idle_since = time.time()
+        oom = 0
         while not self.stop:
             try:
                 self.heartbeat()
@@ -385,7 +386,20 @@ class Worker:
                     book, n, *_ = job
                     try:
                         self.generate(*job)
+                        oom = 0
                     except Exception as e:
+                        if type(e).__name__ == "OutOfMemoryError":
+                            # Fragmented or crowded VRAM: retrying with the same process
+                            # state fails forever (happened 2026-10-22, 3 h lost). Reload
+                            # the model from scratch; finished chunks are on disk.
+                            oom += 1
+                            log.warning("GPU out of memory (%d in a row): reloading the model", oom)
+                            if self.engine is not None:
+                                self.engine.close()
+                            self.engine, self.engine_voice = None, None
+                            free_gpu()
+                            time.sleep(min(300, 30 * oom))
+                            continue
                         log.exception("generation failed")
                         self.db.update("narrations", {"book_id": book["id"]}, {"state": "error", "error": str(e)[:300]})
                         time.sleep(self.poll)

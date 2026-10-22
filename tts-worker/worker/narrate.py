@@ -12,7 +12,8 @@ import numpy as np
 
 from .audio import normalize, silence, trim
 from .engines import Engine
-from .text import Chunk, Piece, group_chunks, to_pieces
+from .engines import free_gpu
+from .text import Chunk, Piece, group_chunks, split_long, to_pieces
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def narrate(
         if cached is not None:
             wav, rel = cached
         else:
-            wav, rel, warn = _synth_chunk(engine, chunk, lang, asr)
+            wav, rel, warn = _synth_or_split(engine, chunk, lang, asr)
             if warn:
                 warnings.append(warn)
             if cache:
@@ -142,6 +143,41 @@ def narrate(
         timings.append(Timing(index=i, cfi=sentences[i].cfi, start=round(starts[i], 3), end=round(end, 3)))
     wav = np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
     return ChapterAudio(wav=wav, sample_rate=sr, timings=timings, warnings=warnings)
+
+
+def _synth_or_split(engine: Engine, chunk: Chunk, lang: str, asr, depth: int = 0) -> tuple[np.ndarray, list[float], str | None]:
+    """Synthesize a chunk; if the GPU runs out of memory on it (some chunks make
+    the decoder's working set too big for the GTX 1650: 2026-10-22, chapter 15 of
+    Bóvedas de acero), split it in halves and synthesize them one by one."""
+    try:
+        return _synth_chunk(engine, chunk, lang, asr)
+    except Exception as e:
+        if type(e).__name__ != "OutOfMemoryError" or depth >= 4:
+            raise
+    free_gpu()
+    pieces = chunk.pieces
+    if len(pieces) == 1:
+        p = pieces[0]
+        pieces = [Piece(p.sentence, t) for t in split_long(p.text, max(30, len(p.text) // 2))]
+        if len(pieces) == 1:
+            raise RuntimeError(f"cannot split chunk further: {p.text[:60]}")
+    mid = len(pieces) // 2
+    sr = engine.sample_rate
+    wavs, starts, warns = [], [], []
+    offset = 0.0
+    seen: list[int] = []
+    for half in (Chunk(pieces[:mid]), Chunk(pieces[mid:])):
+        wav, rel, warn = _synth_or_split(engine, half, lang, asr, depth + 1)
+        for s, r in zip(half.sentences, rel):
+            if s not in seen:  # a sentence split across both halves starts in the first
+                seen.append(s)
+                starts.append(offset + r)
+        wavs += [wav, silence(0.12, sr)]
+        offset += wav.size / sr + 0.12
+        if warn:
+            warns.append(warn)
+    log.info("chunk split after GPU out of memory (depth %d)", depth + 1)
+    return np.concatenate(wavs[:-1]), starts, "; ".join(warns) or None
 
 
 def _synth_chunk(engine: Engine, chunk: Chunk, lang: str, asr) -> tuple[np.ndarray, list[float], str | None]:
