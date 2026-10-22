@@ -12,6 +12,7 @@ import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
 import { setBarsDark } from '../platform/theme'
 import { audioManager } from '../platform'
+import { allowSleep, stayAwake } from '../platform/keepAwake'
 import { onPrefs, prefs } from '../settings'
 import { t } from '../strings'
 import { toast } from '../ui/dialog'
@@ -106,6 +107,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   view.addEventListener('relocate', ((e: CustomEvent<Location>) => {
     const loc = e.detail
     lastLoc = loc
+    stayAwake()
     chapterEl.textContent = loc.tocItem?.label ?? ''
     footLeft.textContent = loc.tocItem?.label ?? ''
     footRight.textContent = `${Math.round((loc.fraction ?? 0) * 100)}%`
@@ -202,6 +204,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     sentencesOf(index, doc)
     doc.addEventListener('selectionchange', () => { clearTimeout(selTimer); selTimer = window.setTimeout(() => showSelection(doc, index), 250) })
     doc.addEventListener('keydown', onKey)
+    doc.addEventListener('pointerdown', stayAwake)
     doc.addEventListener('click', (ev: MouseEvent) => {
       if ((ev.target as Element).closest?.('a[href]')) return
       if (!doc.getSelection()?.isCollapsed) return
@@ -332,7 +335,11 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   // "Escuchar" on the library's keep-reading card.
   if (sessionStorage.getItem('listen')) { sessionStorage.removeItem('listen'); listenBtn.click() }
 
+  shell.addEventListener('pointerdown', stayAwake)
+  stayAwake()
+
   return () => {
+    allowSleep()
     offPrefs()
     offChange()
     document.removeEventListener('keydown', onKey)

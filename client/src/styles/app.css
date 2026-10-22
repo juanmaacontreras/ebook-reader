@@ -186,7 +186,9 @@ input[type=range]::-moz-range-thumb { width:16px; height:16px; border-radius:50%
 .player .ptrack { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:12px; color:var(--muted); }
 .player .ptrack input { flex:1; }
 .player .pctl { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:4px; }
-.playbig { width:56px; height:56px; border-radius:50%; border:none; background:var(--indigo); color:var(--onAccent);
+.player .pctl > button { flex:none; }
+.player .pctl > .pspacer { flex:0 1 52px; min-width:0; }
+.playbig { flex:none; width:56px; height:56px; border-radius:50%; border:none; background:var(--indigo); color:var(--onAccent);
   display:flex; align-items:center; justify-content:center; cursor:pointer; margin:0 8px; }
 .playbig .ico { width:26px; height:26px; }
 .speedbtn { min-width:52px; height:36px; border-radius:18px; border:none; background:var(--surface2); color:var(--ink);

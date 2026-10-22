@@ -57,7 +57,7 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
       play,
       skipBtn('forward', t.fwd30, () => void narr.forward()),
       h('button.iconbtn.flat', { title: t.nextSentence, 'aria-label': t.nextSentence, onclick: () => void narr.stepSentence(1) }, icon('nexts')),
-      h('span', { style: 'width:52px' })))
+      h('span.pspacer')))
 
   return {
     el,
