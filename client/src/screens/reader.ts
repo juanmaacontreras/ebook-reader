@@ -260,16 +260,10 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       sentence: (s, i, cfi) => void followSentence(s, i, cfi),
       status: (m, busy) => player?.setStatus(m, busy),
       playing: p => { player?.setPlaying(p); shell.classList.toggle('playing', p) },
-      time: (s, time, dur) => { player?.notice(null); player?.setTime(s, time, dur) },
-      // Phone/tablet: the chapter has no audio and can't be requested from here.
-      // Proposal pending (CLAUDE.md): a = status line, b = toast, c = notice in the player.
-      missing: s => {
-        const v = document.documentElement.dataset.variant
-        player?.setTime(s, 0, 0)
-        if (v === 'b') { toast(t.chapterNoAudioPhone); void hidePlayer() }
-        else if (v === 'c') player?.notice(t.chapterNoAudioPhone)
-        else player?.setStatus(t.chapterNoAudioPhone, false, true)
-      },
+      time: (s, time, dur) => player?.setTime(s, time, dur),
+      // Phone/tablet: the chapter has no audio and can't be requested from here:
+      // a short message and the player closes (option B, picked 2026-10-22).
+      missing: () => { toast(t.chapterNoAudioPhone); void hidePlayer() },
     }).init()
   }
 

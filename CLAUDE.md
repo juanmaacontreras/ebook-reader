@@ -252,9 +252,9 @@ screens and bottom sheets on phones. The reading surface has its own themes
   (3) an "Audios" screen (`screens/audios.ts`, route `#/audios`): PC status,
   cloud usage vs 700 MB, every narration with pause/resume, generate all, move
   up the queue (`putFirst` = oldest requested_at), delete audio (cloud + device,
-  row kept paused so auto-narration doesn't recreate it). Its design is pending
-  the user's pick (A cards / B grouped by state with a "now" card / C compact
-  with inline buttons, `?variant`); the library button stays hidden until then.
+  row kept paused so auto-narration doesn't recreate it). Design: option B (grouped
+  by state, the book being generated on top), picked over a list of cards and a
+  compact list; opened from the headphones button in the library header.
 
 - 2026-10-22: **audio is requested and managed only from the desktop app.**
   `audioManager` (`platform/index.ts`) is false on Android: no voice choice, no
@@ -267,9 +267,9 @@ screens and bottom sheets on phones. The reading surface has its own themes
   undone, and every device drops its local copy when the chapters disappear
   (`deleted_chapters` → `deleteLocalChapter`). Note: an 'ahead' narration started
   from the PC follows the synced reading position, including reading on the
-  phone. Pending pick: how the phone shows a chapter without audio (`?variant`
-  a = player status line, b = toast, c = notice replacing the controls); preview
-  the phone UI in a browser with `?demo&as=phone`.
+  phone. A chapter without audio on the phone: a toast and the player closes (option B,
+  picked over a warning in the player and a notice replacing the controls).
+  Preview the phone UI in a browser with `?demo&as=phone`.
 
 ## Current state (2026-10-21)
 

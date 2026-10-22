@@ -80,13 +80,10 @@ function statusText(it: Item): string {
   }
 }
 
-const chipClass: Record<Kind, string> = { generating: '.live', queued: '', ready: '.ok', paused: '', error: '.warn' }
-
 export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, goBack: () => void): () => void {
-  const variant = document.documentElement.dataset.variant ?? 'a'
   const head = h('div')
   const list = h('div')
-  root.replaceChildren(h('div.wrap.audios.v-' + variant,
+  root.replaceChildren(h('div.wrap.audios',
     h('div.hd',
       h('button.iconbtn', { 'aria-label': t.back, onclick: () => goBack() }, icon('back')),
       h('div', h('div.title', t.audios)),
@@ -128,18 +125,8 @@ export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, 
 
   const progress = (it: Item) => it.total ? h('div.prog', h('div.track', h('div.fill', { style: `width:${Math.round(100 * it.ready / it.total)}%` }))) : null
 
-  // A: one list of cards; tap a card for its actions.
-  const rowA = (it: Item, rerender: () => void) => h('div.card.arow', { role: 'button', tabIndex: 0, onclick: () => actions(it, rerender) },
-    cover(it.book),
-    h('div.mid',
-      h('div.bt', it.book.title),
-      h('div.astate', h('span.chip' + chipClass[it.kind], statusText(it))),
-      h('div.ba', meta(it)),
-      progress(it)),
-    audioManager ? h('span.more', icon('more')) : null)
-
-  // C: compact rows with the common actions right there.
-  const rowC = (it: Item, rerender: () => void) => h('div.crow',
+  // A row: cover, title, state · voice · chapters · size, pause/resume on the PC.
+  const row = (it: Item, rerender: () => void) => h('div.crow',
     cover(it.book),
     h('div.mid', h('div.bt', it.book.title), h('div.ba', `${statusText(it)} · ${meta(it)}`)),
     !audioManager ? null
@@ -164,37 +151,28 @@ export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, 
       return
     }
     const rerender = () => void render()
-    if (variant === 'b') {
-      // B: grouped by state, the one being generated on top as a hero.
-      clear(head, meter)
-      const now = items.find(i => i.kind === 'generating')
-      const groups: [string, Item[]][] = [
-        [t.queued, items.filter(i => i.kind === 'queued' || i.kind === 'error')],
-        [t.audioReady, items.filter(i => i.kind === 'ready')],
-        [t.pausedLabel, items.filter(i => i.kind === 'paused')],
-      ]
-      clear(list,
-        now ? h('div.card.nowcard', { onclick: () => actions(now, rerender) },
-          cover(now.book),
-          h('div.mid',
-            h('div.eyebrow', h('span.pulse'), t.audioAheadGenerating),
-            h('div.ht', now.book.title),
-            h('div.ba', now.current ?? ''),
-            h('div.ba', meta(now)),
-            progress(now))) : null,
-        groups.filter(([, g]) => g.length).map(([label, g]) => [
-          h('div.sechd', h('span.t', label)),
-          h('div.card.glist', g.map(it => rowC(it, rerender))),
-        ]))
-      return
-    }
-    if (variant === 'c') {
-      clear(head)
-      clear(list, h('div.card.glist', items.map(it => rowC(it, rerender))), meter)
-      return
-    }
+    // Grouped by state, the book being generated on top (option B, picked by
+    // the user 2026-10-22 over a list of cards and a compact list).
     clear(head, meter)
-    clear(list, h('div.rows', items.map(it => rowA(it, rerender))))
+    const now = items.find(i => i.kind === 'generating')
+    const groups: [string, Item[]][] = [
+      [t.queued, items.filter(i => i.kind === 'queued' || i.kind === 'error')],
+      [t.audioReady, items.filter(i => i.kind === 'ready')],
+      [t.pausedLabel, items.filter(i => i.kind === 'paused')],
+    ]
+    clear(list,
+      now ? h('div.card.nowcard', { onclick: () => actions(now, rerender) },
+        cover(now.book),
+        h('div.mid',
+          h('div.eyebrow', h('span.pulse'), t.audioAheadGenerating),
+          h('div.ht', now.book.title),
+          h('div.ba', now.current ?? ''),
+          h('div.ba', meta(now)),
+          progress(now))) : null,
+      groups.filter(([, g]) => g.length).map(([label, g]) => [
+        h('div.sechd', h('span.t', label)),
+        h('div.card.glist', g.map(it => row(it, rerender))),
+      ]))
   }
 
   const off = onChange(changed => { if (changed.has('narrations') || changed.has('chapters')) void render() })

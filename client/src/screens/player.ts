@@ -9,8 +9,7 @@ export interface PlayerCard {
   el: HTMLElement
   setPlaying(p: boolean): void
   setTime(section: number, time: number, duration: number): void
-  setStatus(message: string | null, busy?: boolean, warn?: boolean): void
-  notice(message: string | null): void
+  setStatus(message: string | null, busy?: boolean): void
 }
 
 const fmt = (s: number) => {
@@ -45,7 +44,6 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
   const skipBtn = (ico: string, label: string, run: () => void) =>
     h('button.iconbtn.flat.skipbtn', { title: label, 'aria-label': label, onclick: run }, icon(ico), h('small', '30'))
 
-  const noticeBox = h('div.pnotice.hidden')
   const el = h('div.card.player',
     h('div.ptop',
       h('div.pinfo', chapter, status),
@@ -59,8 +57,7 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
       play,
       skipBtn('forward', t.fwd30, () => void narr.forward()),
       h('button.iconbtn.flat', { title: t.nextSentence, 'aria-label': t.nextSentence, onclick: () => void narr.stepSentence(1) }, icon('nexts')),
-      h('span', { style: 'width:52px' })),
-    noticeBox)
+      h('span', { style: 'width:52px' })))
 
   return {
     el,
@@ -78,13 +75,7 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
       }
       dur.textContent = fmt(duration)
     },
-    notice(message) {
-      el.classList.toggle('noticing', Boolean(message))
-      noticeBox.classList.toggle('hidden', !message)
-      noticeBox.replaceChildren(...(message ? [icon('pc'), h('span', message)] : []))
-    },
-    setStatus(message, busy, warn) {
-      status.classList.toggle('warn', Boolean(warn))
+    setStatus(message, busy) {
       status.replaceChildren(...(busy ? [h('span.spinner', { style: 'display:inline-block;width:11px;height:11px;border-width:2px;vertical-align:-1px;margin-right:6px' })] : []), message ?? '')
     },
   }
