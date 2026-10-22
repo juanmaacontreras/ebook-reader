@@ -305,3 +305,10 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(.75); } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation:none; } }
 .v-c .meter { margin-top:12px; }
+
+/* Phone: a chapter without audio (it can only be requested from the PC) */
+.player .pinfo span.warn { color:var(--paused); font-weight:600; white-space:normal; }
+.pnotice { display:flex; align-items:center; gap:12px; margin-top:10px; padding:12px 14px; border-radius:var(--r-sm);
+  background:var(--pausedSoft); color:var(--ink); font-size:14px; font-weight:600; }
+.pnotice .ico { color:var(--paused); }
+.player.noticing .ptrack, .player.noticing .pctl { display:none; }

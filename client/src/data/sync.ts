@@ -127,9 +127,13 @@ async function pull(): Promise<void> {
   const since = (await kv.get<string>(delKey)) ?? '1970-01-01T00:00:00Z'
   const { data: dels, error } = await supabase.from('deleted_chapters').select('book_id,voice,section,synced_at').gt('synced_at', since).order('synced_at').limit(1000)
   if (error) throw error
-  for (const d of dels ?? []) {
-    await db.del('chapters', [d.book_id, d.voice, d.section])
-    changed.add('chapters')
+  if (dels?.length) {
+    const { deleteLocalChapter } = await import('../audio/cache')
+    for (const d of dels) {
+      await deleteLocalChapter(d)
+      await db.del('chapters', [d.book_id, d.voice, d.section])
+      changed.add('chapters')
+    }
   }
   if (dels?.length) await kv.set(delKey, dels[dels.length - 1].synced_at)
   emit(changed)

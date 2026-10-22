@@ -10,6 +10,7 @@ import { h } from '../ui/dom'
 import { icon } from '../ui/icons'
 import { checkForUpdate } from '../platform/updater'
 import { autoNarrateAll, workerStatus } from '../data/store'
+import { audioManager } from '../platform'
 
 const mb = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1).replace('.', ',')} GB` : `${Math.round(bytes / 1e6)} MB`
 
@@ -17,11 +18,11 @@ export function openSettings(): void {
   openDialog(t.settings, async (body, close) => {
     const { data } = await supabase.auth.getUser()
     const storageRow = h('div.setrow', h('span.lbl', t.storage), h('span.val', '…'))
-    body.append(
+    body.append(...[
       h('label.flabel', t.appearance),
       segmented<UiTheme>([['system', t.appearanceSystem], ['light', t.themeLight], ['dark', t.themeDark]], prefs().uiTheme,
         v => void setPrefs({ uiTheme: v }).then(applyUiTheme)),
-      h('label.setrow', h('span.lbl', t.autoNarrate, h('small', { style: 'display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:2px' }, t.autoNarrateHint)),
+      !audioManager ? null : h('label.setrow', h('span.lbl', t.autoNarrate, h('small', { style: 'display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:2px' }, t.autoNarrateHint)),
         h('input', { type: 'checkbox', checked: prefs().autoNarrate, onchange: (e: Event) => {
           const on = (e.target as HTMLInputElement).checked
           void setPrefs({ autoNarrate: on }).then(() => { if (on) void autoNarrateAll() })
@@ -33,7 +34,7 @@ export function openSettings(): void {
       h('div.setrow', icon('update'), h('span.lbl', t.version(APP_VERSION)),
         h('button.btn.small.ghost', { onclick: () => { close(); void checkForUpdate(true) } }, t.updateNow)),
       h('p.muted', { style: 'font-size:12.5px;margin-top:12px' }, APP_NAME),
-    )
+    ].filter((x): x is HTMLElement => x !== null))
     // Cloud usage: EPUBs from the books table + audio as reported by the worker.
     const books = await db.all<{ size_bytes: number | null }>('books')
     const epubBytes = books.reduce((a, b) => a + (b.size_bytes ?? 0), 0)

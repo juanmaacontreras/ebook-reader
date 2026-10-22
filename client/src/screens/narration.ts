@@ -9,6 +9,7 @@ import { t } from '../strings'
 import { confirmDialog, openDialog } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
+import { audioManager } from '../platform'
 
 // Narration sheet: voice choice, generation status, and this device's copy.
 export function openNarrationSheet(book: Book, narr: NarrationController, section: number, onStarted?: () => void): void {
@@ -44,6 +45,14 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
           : done >= total ? `${t.audioReady}. ${t.audioDownloaded(local, total)}`
           : row.scope === 'ahead' ? `${row.state === 'ready' ? t.audioAheadReady : t.audioAheadGenerating} (${done}/${total}). ${t.aheadHint}`
           : done ? t.audioGenerating(done, total) : t.audioQueued))
+      if (!audioManager) {
+        // Phone/tablet: listen and manage this device's copy, nothing else.
+        clear(statusBox, h('p', !row || !done ? t.bookNoAudioPhone
+          : `${done >= total ? t.audioReady : t.audioGenerating(done, total)}. ${t.audioDownloaded(local, total)}`),
+          row && done ? h('p.muted', { style: 'font-size:13px' }, t.audioFromPc) : null)
+        voicesBox.previousElementSibling?.remove()
+        voicesBox.remove()
+      }
       const usable = voices.filter(v => v.languages.includes(lang))
       const featured = featuredVoices(lang, row?.voice ?? null)
       const shown = showAll ? usable : usable.filter(v => featured.includes(v.id) || v.id === selected)
@@ -51,7 +60,7 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
         icon(v.cloned ? 'wave' : 'headphones'),
         h('span.vn', v.label, h('small', v.cloned ? t.voiceCloned : t.voiceFast)),
         v.id === row?.voice ? icon('check') : null)
-      clear(voicesBox, shown.map(voiceBtn),
+      if (audioManager) clear(voicesBox, shown.map(voiceBtn),
         usable.length > shown.length || showAll
           ? h('button.textbtn', { style: 'align-self:flex-start', onclick: () => { showAll = !showAll; void render() } }, showAll ? t.fewerVoices : t.moreVoices)
           : null)
@@ -78,6 +87,13 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
         : !missing.length ? h('p.muted', { style: 'font-size:13.5px' }, t.allAudioHere)
         : downloadAllBtn)
 
+      if (!audioManager) {
+        clear(actions,
+          row && local ? h('button.btn.small.ghost', { style: 'margin-right:auto', onclick: async () => { await deleteBookAudio(book.id); void render() } }, t.deleteLocalAudio) : null,
+          row && done ? h('button.btn.small.primary', { onclick: () => { close(); onStarted?.() } }, icon('play'), t.listen)
+            : h('button.btn.small.primary', { onclick: () => close() }, t.ok))
+        return
+      }
       const sameVoice = row && row.voice === selected
       const generating = row && row.state !== 'ready' && row.state !== 'purged' && done < total
       clear(actions,

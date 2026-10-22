@@ -14,6 +14,7 @@ import { t } from '../strings'
 import { confirmDialog, openDialog } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
+import { audioManager } from '../platform'
 
 const CLOUD_LIMIT = 700e6  // worker default MAX_AUDIO_MB (tts-worker/README.md)
 
@@ -92,7 +93,9 @@ export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, 
       h('div.spacer')),
     head, list))
 
-  const actions = (it: Item, rerender: () => void) => openDialog(it.book.title, (body, close) => {
+  // Phone/tablet: status only; tapping a book opens it to listen.
+  const actions = (it: Item, rerender: () => void) => audioManager ? manage(it, rerender) : openBook(it.book.id)
+  const manage = (it: Item, rerender: () => void) => openDialog(it.book.title, (body, close) => {
     const choice = (ico: string, label: string, run: () => Promise<void> | void, danger = false) =>
       h('button.choice' + (danger ? '.danger' : ''), { onclick: async () => { close(); await run(); rerender() } }, icon(ico), h('div', label))
     body.append(...[
@@ -133,16 +136,17 @@ export function audiosScreen(root: HTMLElement, openBook: (id: string) => void, 
       h('div.astate', h('span.chip' + chipClass[it.kind], statusText(it))),
       h('div.ba', meta(it)),
       progress(it)),
-    h('span.more', icon('more')))
+    audioManager ? h('span.more', icon('more')) : null)
 
   // C: compact rows with the common actions right there.
   const rowC = (it: Item, rerender: () => void) => h('div.crow',
     cover(it.book),
     h('div.mid', h('div.bt', it.book.title), h('div.ba', `${statusText(it)} · ${meta(it)}`)),
-    it.kind === 'paused' || it.kind === 'error'
+    !audioManager ? null
+    : it.kind === 'paused' || it.kind === 'error'
       ? h('button.iconbtn.flat', { 'aria-label': t.resumeGeneration, title: t.resumeGeneration, onclick: async () => { await narration.setPaused(it.book.id, false); rerender() } }, icon('play'))
       : it.kind !== 'ready' ? h('button.iconbtn.flat', { 'aria-label': t.pauseGeneration, title: t.pauseGeneration, onclick: async () => { await narration.setPaused(it.book.id, true); rerender() } }, icon('pause')) : null,
-    h('button.iconbtn.flat', { 'aria-label': t.more, onclick: () => actions(it, rerender) }, icon('more')))
+    audioManager ? h('button.iconbtn.flat', { 'aria-label': t.more, onclick: () => actions(it, rerender) }, icon('more')) : null)
 
   async function render() {
     const ws = await workerStatus().catch(() => null)

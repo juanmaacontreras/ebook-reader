@@ -256,6 +256,21 @@ screens and bottom sheets on phones. The reading surface has its own themes
   the user's pick (A cards / B grouped by state with a "now" card / C compact
   with inline buttons, `?variant`); the library button stays hidden until then.
 
+- 2026-10-22: **audio is requested and managed only from the desktop app.**
+  `audioManager` (`platform/index.ts`) is false on Android: no voice choice, no
+  generate / generate all / pause / resume, no automatic narration (setting
+  hidden), and playing a chapter without audio never prioritizes it — it says
+  "Pedilo desde la PC". Phones keep: listening, "Bajar todo el audio", deleting
+  this device's copy, and the Audios screen as read-only (tap opens the book).
+  Finishing a book no longer deletes audio from the app: the worker deletes it
+  `PURGE_AFTER_HOURS` (24) after `finished_at`, so a mistaken "terminado" can be
+  undone, and every device drops its local copy when the chapters disappear
+  (`deleted_chapters` → `deleteLocalChapter`). Note: an 'ahead' narration started
+  from the PC follows the synced reading position, including reading on the
+  phone. Pending pick: how the phone shows a chapter without audio (`?variant`
+  a = player status line, b = toast, c = notice replacing the controls); preview
+  the phone UI in a browser with `?demo&as=phone`.
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:

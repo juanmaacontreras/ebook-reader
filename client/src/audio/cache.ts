@@ -75,6 +75,12 @@ export async function resolveLazy(src: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
+// The cloud copy of a chapter is gone (the PC purged it): drop this device's file too.
+export async function deleteLocalChapter(c: Pick<NarrationChapter, 'book_id' | 'voice' | 'section'>): Promise<void> {
+  if (isAndroid) await Filesystem.deleteFile({ directory: Directory.Data, path: filePath(c) }).catch(() => {})
+  else await local.del(fileKey(c))
+}
+
 export async function deleteBookAudio(bookId: string): Promise<void> {
   const chapters = await db.byIndex<Chapter>('chapters', 'book_id', bookId)
   for (const c of chapters) {
