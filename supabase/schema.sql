@@ -107,6 +107,9 @@ create table if not exists public.narrations (
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
   voice text not null,                 -- "<engine>:<voice>", e.g. kokoro:ef_dora
   status text not null default 'active' check (status in ('active', 'paused')),
+  -- 'ahead': only the next few chapters from where the user is (automatic
+  -- narration); 'all': the whole book (asked for explicitly).
+  scope text not null default 'ahead' check (scope in ('ahead', 'all')),
   start_section int,                   -- where the user was when they asked
   priority_section int,                -- the user jumped here: generate it next
   requested_at timestamptz not null default now(),
@@ -116,6 +119,8 @@ create table if not exists public.narrations (
   current_section int,
   error text
 );
+alter table public.narrations add column if not exists scope text not null default 'ahead'
+  check (scope in ('ahead', 'all'));
 
 -- One row per finished chapter. Written only by the worker.
 create table if not exists public.narration_chapters (

@@ -48,7 +48,7 @@ export async function autoNarrate(bookId: string): Promise<void> {
   const [b, existing] = await Promise.all([books.get(bookId), narration.get(bookId)])
   if (!b || b.status !== 'reading' || existing || !b.text_path) return
   const pos = await positions.get(bookId)
-  await narration.request(bookId, defaultVoice((b.language ?? 'es').split('-')[0]), pos?.section ?? null)
+  await narration.request(bookId, defaultVoice((b.language ?? 'es').split('-')[0]), pos?.section ?? null, 'ahead')
 }
 
 // Books already in "reading" (on start, or when the setting is turned on).
@@ -97,11 +97,11 @@ export const narration = {
   async chapters(bookId: string): Promise<NarrationChapter[]> {
     return db.byIndex<NarrationChapter>('chapters', 'book_id', bookId)
   },
-  async request(bookId: string, voice: string, startSection: number | null): Promise<void> {
+  async request(bookId: string, voice: string, startSection: number | null, scope?: Narration['scope']): Promise<void> {
     const cur = await narration.get(bookId)
     const t = now()
     const row: Local<Narration> = {
-      book_id: bookId, voice, status: 'active', start_section: startSection, priority_section: null,
+      book_id: bookId, voice, status: 'active', scope: scope ?? cur?.scope ?? 'ahead', start_section: startSection, priority_section: null,
       requested_at: cur && cur.voice === voice ? cur.requested_at : t, updated_at: t,
       state: cur && cur.voice === voice ? cur.state : 'waiting', current_section: null, error: null, _dirty: true,
     }
@@ -115,6 +115,30 @@ export const narration = {
     await db.put('narrations', { ...cur, priority_section: section, status: 'active', updated_at: now(), _dirty: true })
     emit(['narrations'])
     syncSoon(200)
+  },
+  async setScope(bookId: string, scope: Narration['scope']): Promise<void> {
+    const cur = await narration.get(bookId)
+    if (!cur || (cur.scope === scope && cur.status === 'active')) return
+    await db.put('narrations', { ...cur, scope, status: 'active', updated_at: now(), _dirty: true })
+    emit(['narrations'])
+    syncSoon(200)
+  },
+  // Move to the front of the PC's queue (it takes the oldest request first).
+  async putFirst(bookId: string): Promise<void> {
+    const all = await db.all<Local<Narration>>('narrations')
+    const cur = all.find(n => n.book_id === bookId)
+    if (!cur) return
+    const first = Math.min(...all.map(n => Date.parse(n.requested_at)))
+    await db.put('narrations', { ...cur, status: 'active', requested_at: new Date(first - 1000).toISOString(), updated_at: now(), _dirty: true })
+    emit(['narrations'])
+    syncSoon(200)
+  },
+  // Free the cloud and this device; the row stays (paused) so automatic
+  // narration doesn't recreate it.
+  async deleteAudio(bookId: string): Promise<void> {
+    await narration.setPaused(bookId, true)
+    await purgeAudio(bookId)
+    emit(['chapters', 'narrations'])
   },
   async setPaused(bookId: string, paused: boolean): Promise<void> {
     const cur = await narration.get(bookId)
@@ -136,7 +160,8 @@ async function purgeAudio(bookId: string): Promise<void> {
     console.warn('purge failed, the worker will retry', e)
   }
   const { deleteBookAudio } = await import('../audio/cache')
-  await deleteBookAudio(bookId)
+  await deleteBookAudio(bookId)  // local files first: it walks the chapter rows
+  for (const c of chs) await db.del('chapters', [c.book_id, c.voice, c.section])
 }
 
 export async function workerStatus(): Promise<WorkerStatus | null> {

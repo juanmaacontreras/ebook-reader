@@ -37,6 +37,9 @@ from .narrate import ChunkCache, Sentence, narrate
 from .supa import Supabase
 
 ROOT = Path(__file__).resolve().parents[1]
+# Automatic ("ahead") narration keeps this many chapters ready from the user's
+# current one, the current one included.
+AHEAD_CHAPTERS = int(os.environ.get("AHEAD_CHAPTERS", "3"))
 log = logging.getLogger("worker")
 
 
@@ -273,16 +276,29 @@ class Worker:
             done = {r["section"] for r in self.db.select(
                 "narration_chapters", {"select": "section", "book_id": f"eq.{book['id']}", "voice": f"eq.{n['voice']}"})}
             sections = [s for s in manifest["sections"] if s["sentences"]]
-            pending = [s for s in sections if s["i"] not in done]
+            # Where the user is: their synced reading position, else where they
+            # were when they asked. A chapter they jumped to (priority) goes first.
+            pos = self.db.select("positions", {"select": "section", "book_id": f"eq.{book['id']}"})
+            here = pos[0]["section"] if pos and pos[0].get("section") is not None else n.get("start_section")
+            if here is None:
+                here = sections[0]["i"]
+            k = next((j for j, s in enumerate(sections) if s["i"] >= here), 0)
+            if n.get("scope", "ahead") == "ahead":
+                # Automatic narration: only the current chapter and the next ones,
+                # moving forward as the user reads (a book opened by mistake costs
+                # a couple of chapters, not a whole book of storage and GPU).
+                order = sections[k : k + AHEAD_CHAPTERS]
+            else:
+                order = sections[k:] + sections[:k]
+            prio = next((s for s in sections if s["i"] == n.get("priority_section")), None)
+            if prio is not None:
+                order = [prio] + [s for s in order if s is not prio]
+            pending = [s for s in order if s["i"] not in done]
             if not pending:
                 if n["state"] != "ready":
                     self.db.update("narrations", {"book_id": book["id"]}, {"state": "ready", "current_section": None, "error": None})
                 continue
-            anchor = n.get("priority_section")
-            if anchor is None:
-                anchor = n.get("start_section") or sections[0]["i"]
-            order = [s for s in sections if s["i"] >= anchor] + [s for s in sections if s["i"] < anchor]
-            nxt = next(s for s in order if s["i"] not in done)
+            nxt = pending[0]
             return book, n, manifest, nxt, len(done), len(sections)
         return None
 
@@ -344,6 +360,8 @@ class Worker:
         log.info("  done: %.1f min of audio in %.1f min (%.1fx), %.1f MB", duration / 60, took / 60, duration / max(took, 1e-6), len(data) / 1e6)
         if done + 1 >= total:
             self.db.update("narrations", {"book_id": book["id"]}, {"state": "ready", "current_section": None})
+        else:
+            self.db.update("narrations", {"book_id": book["id"]}, {"current_section": None})
 
     # ---- main loop ------------------------------------------------------------------------
     def run(self) -> None:
