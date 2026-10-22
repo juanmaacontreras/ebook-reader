@@ -264,6 +264,16 @@ Not verified yet / to watch:
   still receiving plugin events; worst case it's pushed when the app resumes.
 - Chatterbox's first chapter takes ~2.5× its length to generate; Kokoro ~1 min.
 
+## The user's Arch PC (installed 2026-10-21)
+
+- Desktop app: `~/.local/opt/atril/Atril.AppImage` (writable, so Tauri's updater
+  can replace it), launcher `~/.local/share/applications/atril.desktop`, icon
+  `~/.local/share/icons/hicolor/256x256/apps/atril.png`. Renders fine on the
+  NVIDIA GTX 1650 under Hyprland (checked with a screenshot).
+- Worker: systemd user service `atril-tts` (`./run.sh --service`), linked to the
+  user's account (`tts-worker/.session.json`). Logs: `journalctl --user -u atril-tts`.
+- Signing-key backup: `~/.config/atril/signing/`.
+
 ## Applying schema changes
 
 `supabase/schema.sql` is idempotent: run the whole file again. It needs either
