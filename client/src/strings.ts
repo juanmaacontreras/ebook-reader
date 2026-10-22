@@ -44,6 +44,7 @@ export const t = {
   offline: 'Sin conexión',
   allHighlights: 'Resaltados',
   continueReading: 'Seguir',
+  restOfLibrary: 'El resto de tu biblioteca',
 
   // Book menu
   bookMenuTitle: 'Libro',

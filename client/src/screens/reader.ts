@@ -316,6 +316,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   await loadHighlights()
   const jump = sessionStorage.getItem('jump')
   if (jump) { sessionStorage.removeItem('jump'); await view.goTo(jump) }
+  // "Escuchar" on the library's keep-reading card.
+  if (sessionStorage.getItem('listen')) { sessionStorage.removeItem('listen'); listenBtn.click() }
 
   return () => {
     offPrefs()

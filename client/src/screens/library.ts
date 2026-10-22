@@ -86,41 +86,17 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
     }
     if (!list.length) { clear(grid, h('div.empty', h('b', t.emptyFilter))); return }
     const card = async (b: Local<Book>) => bookCard(b, pos.get(b.id)?.fraction ?? null, withAudio.has(b.id), await hasLocalEpub(b.id))
-    // Design proposal (CLAUDE.md: variants first). ?variant=list | hero; default grid.
-    const variant = new URLSearchParams(location.search).get('variant')
-    if (variant === 'list') {
-      clear(grid, h('div.rows', await Promise.all(list.map(async b => bookRow(b, pos.get(b.id)?.fraction ?? null, withAudio.has(b.id))))))
-      return
-    }
-    if (variant === 'hero') {
-      const current = list.find(b => b.status === 'reading')
-      const rest = list.filter(b => b !== current)
-      clear(grid,
-        current ? heroCard(current, pos.get(current.id)?.fraction ?? 0, withAudio.has(current.id)) : null,
-        rest.length ? h('div.sechd', h('span.t', current ? t.filterAll : '')) : null,
-        h('div.grid', await Promise.all(rest.map(card))))
-      return
-    }
-    clear(grid, h('div.grid', await Promise.all(list.map(card))))
+    // "Keep reading" card for the most recent book in progress, then the grid
+    // (layout C, picked by the user on 2026-10-21 over a plain grid and a list).
+    const current = list.find(b => b.status === 'reading')
+    const rest = list.filter(b => b !== current)
+    clear(grid,
+      current ? heroCard(current, pos.get(current.id)?.fraction ?? 0) : null,
+      current && rest.length ? h('div.sechd', h('span.t', t.restOfLibrary)) : null,
+      h('div.grid', await Promise.all(rest.map(card))))
   }
 
-  function bookRow(b: Local<Book>, fraction: number | null, audio: boolean): HTMLElement {
-    const cover = h('div.cover.mini')
-    void fillCover(cover, b)
-    const pct = fraction != null ? Math.round(fraction * 100) : null
-    return h('div.card.brow', { role: 'button', tabIndex: 0, onclick: () => openBook(b.id), oncontextmenu: (e: Event) => { e.preventDefault(); bookMenu(b) } },
-      cover,
-      h('div.mid',
-        h('div.bt', b.title),
-        h('div.ba', b.author || t.unknownAuthor),
-        b.status === 'finished' ? h('div.prog', h('span.pct', t.finishedLabel))
-          : pct ? h('div.prog', h('div.track', h('div.fill', { style: `width:${pct}%` })), h('span.pct.num', t.percentRead(pct)))
-            : h('div.prog', h('span.pct', t.notStarted))),
-      audio ? h('span.chip.live', icon('headphones')) : null,
-      h('button.iconbtn.flat', { 'aria-label': t.more, onclick: (e: Event) => { e.stopPropagation(); bookMenu(b) } }, icon('more')))
-  }
-
-  function heroCard(b: Local<Book>, fraction: number, audio: boolean): HTMLElement {
+  function heroCard(b: Local<Book>, fraction: number): HTMLElement {
     const cover = h('div.cover.hero-cover')
     void fillCover(cover, b)
     const pct = Math.round(fraction * 100)
@@ -133,7 +109,7 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
         h('div.prog', h('div.track', h('div.fill', { style: `width:${pct}%` })), h('span.pct.num', t.percentRead(pct))),
         h('div.hbtns',
           h('button.btn.primary.small', { onclick: () => openBook(b.id) }, icon('book'), t.continueReading),
-          h('button.btn.tonal.small', { onclick: () => openBook(b.id) }, icon('headphones'), audio ? t.listen : t.listen))))
+          h('button.btn.tonal.small', { onclick: () => { sessionStorage.setItem('listen', '1'); openBook(b.id) } }, icon('headphones'), t.listen))))
   }
 
   function bookCard(b: Local<Book>, fraction: number | null, audio: boolean, downloaded: boolean): HTMLElement {

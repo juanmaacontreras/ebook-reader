@@ -87,13 +87,17 @@ class ChatterboxEngine(Engine):
 
         tokenizer = MTLTokenizer(_fetch(BASE_REPO, "grapheme_mtl_merged_expanded_v1.json"))
         self.model = ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, device)
+        # Expressiveness knobs (Resemble's defaults: 0.5 / 0.5). Higher
+        # exaggeration = more emotive; lower cfg_weight = slower, calmer pacing.
+        self.exaggeration = 0.5
+        self.cfg_weight = 0.5
         self.set_voice(voice)
 
     def set_voice(self, voice: str) -> None:
         ref = VOICES_DIR / f"{voice}.wav"
         if not ref.exists():
             raise FileNotFoundError(f"reference clip not found: {ref}")
-        self.model.prepare_conditionals(str(ref), exaggeration=0.5)
+        self.model.prepare_conditionals(str(ref), exaggeration=self.exaggeration)
         self.voice = voice
 
     def synth(self, text: str, lang: str, temperature: float | None = None) -> np.ndarray:
@@ -103,8 +107,8 @@ class ChatterboxEngine(Engine):
             wav = self.model.generate(
                 text,
                 language_id=lang,
-                exaggeration=0.5,
-                cfg_weight=0.5,
+                exaggeration=self.exaggeration,
+                cfg_weight=self.cfg_weight,
                 temperature=temperature if temperature is not None else 0.8,
             )
         return wav.squeeze(0).cpu().numpy().astype(np.float32)

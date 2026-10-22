@@ -225,6 +225,14 @@ screens and bottom sheets on phones. The reading surface has its own themes
 - Android/desktop builds: CI. Locally only if needed, with SDK/Rust in the
   scratchpad.
 
+## User decisions
+
+- 2026-10-21: library layout C ("keep reading" card on top, grid below), chosen
+  over a plain cover grid and a list. Default voices: Spanish
+  `chatterbox-latam:ar_elena`, English `kokoro:af_heart`
+  (`client/src/audio/voices.ts`). The user isn't fully convinced by any Spanish
+  voice yet ("la que más zafa es Elena"): keep improving Spanish.
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
