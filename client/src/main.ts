@@ -3,7 +3,8 @@ import './styles/app.css'
 import { App } from '@capacitor/app'
 import { configured, demo, supabase } from './data/supabase'
 import { db } from './data/db'
-import { startRealtime, stopRealtime, sync } from './data/sync'
+import { startRealtime, stopRealtime, sync, syncState } from './data/sync'
+import { autoNarrateAll } from './data/store'
 import { applyUiTheme } from './platform/theme'
 import { checkForUpdate } from './platform/updater'
 import { isAndroid } from './platform'
@@ -31,6 +32,9 @@ async function route(): Promise<void> {
 async function main(): Promise<void> {
   if (demo) (window as unknown as { __atril: unknown }).__atril = { db }  // screenshot seeding
   await loadPrefs()
+  // Design proposals (CLAUDE.md): ?variant=NAME is exposed to CSS while a choice is pending.
+  const variant = new URLSearchParams(location.search).get('variant')
+  if (variant) document.documentElement.dataset.variant = variant
   applyUiTheme()
   const { data } = await supabase.auth.getSession()
   if (!demo && (!configured || !data.session)) {
@@ -40,7 +44,9 @@ async function main(): Promise<void> {
   }
   window.addEventListener('hashchange', () => void route())
   await route()
-  void sync()
+  // Auto-narration only after a successful pull: a request made before knowing
+  // the remote narration row could overwrite the voice chosen on another device.
+  void sync().then(() => { if (syncState === 'idle') void autoNarrateAll() })
   startRealtime()
   void checkForUpdate()
 

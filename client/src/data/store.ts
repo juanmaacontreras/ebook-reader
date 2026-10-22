@@ -5,6 +5,8 @@ import { db, kv } from './db'
 import { audioBucket, local } from './files'
 import { emit, syncSoon } from './sync'
 import { supabase } from './supabase'
+import { prefs } from '../settings'
+import { defaultVoice } from '../audio/voices'
 import type { Book, BookStatus, Highlight, HighlightColor, Local, Narration, NarrationChapter, Position, WorkerStatus } from './types'
 
 const now = () => new Date().toISOString()
@@ -28,7 +30,31 @@ export const books = {
     emit(['books'])
     syncSoon()
     if (status === 'finished') await purgeAudio(id)
+    if (status === 'reading') await autoNarrate(id)
   },
+  async edit(id: string, patch: { title: string; author: string | null }): Promise<void> {
+    const b = await books.get(id)
+    if (!b || (b.title === patch.title && b.author === patch.author)) return
+    await db.put('books', { ...b, ...patch, updated_at: now(), _dirty: true })
+    emit(['books'])
+    syncSoon()
+  },
+}
+
+// "Generar audio solo": a book that becomes "reading" gets a narration request
+// with the default voice for its language, starting where the user is.
+export async function autoNarrate(bookId: string): Promise<void> {
+  if (!prefs().autoNarrate) return
+  const [b, existing] = await Promise.all([books.get(bookId), narration.get(bookId)])
+  if (!b || b.status !== 'reading' || existing || !b.text_path) return
+  const pos = await positions.get(bookId)
+  await narration.request(bookId, defaultVoice((b.language ?? 'es').split('-')[0]), pos?.section ?? null)
+}
+
+// Books already in "reading" (on start, or when the setting is turned on).
+export async function autoNarrateAll(): Promise<void> {
+  if (!prefs().autoNarrate) return
+  for (const b of await books.all()) if (b.status === 'reading') await autoNarrate(b.id)
 }
 
 export const positions = {

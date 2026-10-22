@@ -59,12 +59,12 @@ DEMO = [
 def cover_png(title: str, author: str, color: str) -> bytes:
     from PIL import Image, ImageDraw, ImageFont
 
-    img = Image.new("RGB", (600, 900), color)
+    img = Image.new("RGB", (600, 960), color)  # 1:1.6, the usual ratio of real covers
     d = ImageDraw.Draw(img)
     serif = "/usr/share/fonts/gnu-free/FreeSerifBold.otf"
     sans = "/usr/share/fonts/gnu-free/FreeSans.otf"
     big, small = ImageFont.truetype(serif, 64), ImageFont.truetype(sans, 30)
-    d.rectangle([40, 40, 560, 860], outline="#ECEFF4", width=4)
+    d.rectangle([40, 40, 560, 920], outline="#ECEFF4", width=4)
     words, lines, cur = title.split(), [], ""
     for w in words:
         if d.textlength((cur + " " + w).strip(), font=big) > 440:
@@ -77,7 +77,7 @@ def cover_png(title: str, author: str, color: str) -> bytes:
     for line in lines:
         d.text((300, y), line, font=big, fill="#2E3440" if color in ("#EBCB8B", "#A3BE8C") else "#ECEFF4", anchor="mm")
         y += 80
-    d.text((300, 780), author.upper(), font=small, fill="#2E3440" if color in ("#EBCB8B", "#A3BE8C") else "#ECEFF4", anchor="mm")
+    d.text((300, 840), author.upper(), font=small, fill="#2E3440" if color in ("#EBCB8B", "#A3BE8C") else "#ECEFF4", anchor="mm")
     buf = io.BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()

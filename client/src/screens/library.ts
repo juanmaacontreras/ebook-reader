@@ -8,6 +8,7 @@ import type { Book, BookStatus, Local, NarrationChapter } from '../data/types'
 import { prefs, setPrefs, type Prefs } from '../settings'
 import { t } from '../strings'
 import { openDialog, segmented, toast } from '../ui/dialog'
+import { editBook } from './editBook'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
 import { openHighlightsPanel } from './highlights'
@@ -148,6 +149,7 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
         status('reading', t.markReading, 'book'),
         status('to_read', t.markToRead, 'bookmark'),
         status('finished', t.markFinished, 'check', t.markFinishedHint),
+        choice('note', t.editBook, null, () => editBook(b)),
         choice('download', t.downloadBook, null, () => void ensureEpub(b).then(render)),
         choice('trash', t.removeDownload, t.removeDownloadHint, () => void removeLocal(b).then(render), true),
       ].filter((x): x is HTMLElement => x !== null))
@@ -172,7 +174,7 @@ async function fillCover(el: HTMLElement, b: Book) {
     }
     if (blob) { url = URL.createObjectURL(blob); coverUrls.set(b.id, url) }
   }
-  if (url) el.prepend(h('img', { src: url, alt: '', loading: 'lazy', draggable: false }))
+  if (url) el.prepend(h('img.bg', { src: url, alt: '', draggable: false, 'aria-hidden': 'true' }), h('img.fg', { src: url, alt: '', loading: 'lazy', draggable: false }))
   else {
     const c = PLACEHOLDER_COLORS[parseInt(b.sha256.slice(0, 2), 16) % PLACEHOLDER_COLORS.length]
     el.prepend(h('div.ph', { '--c': c }, h('b', b.title), h('span', b.author ?? '')))

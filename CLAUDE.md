@@ -235,6 +235,15 @@ screens and bottom sheets on phones. The reading surface has its own themes
   calmer, and XTTS-v2 (Elena or resumidor's reference; XTTS was ~7× faster but
   not chosen, so it is not an engine here). Chatterbox defaults are now 0.5/0.25.
 
+- 2026-10-22: added "Bajar todo el audio" (narration sheet) and "Generar audio
+  solo" (setting, default on: a book that becomes "reading" gets a narration
+  request with the default voice, only after a successful pull). Voice list:
+  short by default (default + fast + current), the rest behind "Más voces";
+  Spanish clips are offered only on the LatAm model. Books can be renamed
+  (book menu → "Editar título y autor"). Pending pick: cut-off covers on narrow
+  phones, options A/B/C behind `?variant=a|b|c` (CSS at the end of app.css);
+  once picked, keep that one and delete the others.
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
