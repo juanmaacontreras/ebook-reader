@@ -137,6 +137,25 @@ create table if not exists public.narration_chapters (
   primary key (book_id, voice, section)
 );
 
+-- ===== Reading sessions (stats) ==============================================
+-- One row per stretch of reading or listening on one device. Only the device
+-- that started it writes it (upserted while it lasts). book_id survives the
+-- book's deletion as null, so time already read still counts in the totals.
+create table if not exists public.reading_sessions (
+  id uuid primary key,
+  user_id uuid not null default auth.uid() references auth.users on delete cascade,
+  book_id uuid references public.books on delete set null,
+  kind text not null check (kind in ('read', 'listen')),
+  device text,
+  device_kind text,                    -- phone / tablet / pc
+  started_at timestamptz not null,
+  ended_at timestamptz not null,
+  seconds int not null default 0,      -- active time, idle gaps left out
+  words int not null default 0,        -- words advanced (sentence manifest)
+  updated_at timestamptz not null default now()
+);
+create index if not exists reading_sessions_book on public.reading_sessions (book_id);
+
 -- What the PC is doing, so the app can show it ("PC conectada", voices).
 create table if not exists public.worker_status (
   user_id uuid primary key references auth.users on delete cascade,
@@ -161,14 +180,14 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters'] loop
+  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'reading_sessions'] loop
     execute format('alter table public.%I add column if not exists synced_at timestamptz not null default now()', t);
     execute format('create index if not exists %I on public.%I (user_id, synced_at)', t || '_synced', t);
     -- Trigger names fire in alphabetical order: lww (may skip the row) before synced.
     execute format('drop trigger if exists synced on public.%I', t);
     execute format('create trigger synced before insert or update on public.%I for each row execute function public.set_synced_at()', t);
   end loop;
-  foreach t in array array['books', 'positions', 'highlights', 'narrations'] loop
+  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'reading_sessions'] loop
     execute format('drop trigger if exists lww on public.%I', t);
     execute format('create trigger lww before update on public.%I for each row execute function public.lww_guard()', t);
   end loop;
@@ -206,7 +225,7 @@ create trigger log_delete after delete on public.narration_chapters
 do $$
 declare t text;
 begin
-  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status', 'deleted_chapters'] loop
+  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status', 'deleted_chapters', 'reading_sessions'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists own_rows on public.%I', t);
     execute format('create policy own_rows on public.%I for all to authenticated

@@ -7,6 +7,7 @@ import { gunzipJson } from '../book/manifest'
 import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentences'
 import { local, remote } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
+import { SessionTracker, wordIndex } from '../data/sessions'
 import { onChange } from '../data/sync'
 import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
@@ -95,6 +96,9 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const currentDoc = () => view.renderer.getContents()[0]
 
   // ---- Position -------------------------------------------------------------
+  const tracker = new SessionTracker(book.id, wordIndex(manifest))
+  const onHidden = () => { if (document.visibilityState === 'hidden') void tracker.save() }
+  document.addEventListener('visibilitychange', onHidden)
   let lastLoc: Location | null = null
   let audioDriven = false
   let lastSaved = ''
@@ -119,6 +123,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     const k = sentenceAt(sents, loc.range.startContainer, loc.range.startOffset)
     const cfi = manifest?.sections.find(s => s.i === c.index)?.sentences[k]?.c ?? view.getCFI(c.index, sents[k].range)
     savePosition(c.index, k, cfi)
+    void tracker.activity('read', { section: c.index, sentence: k })
     // Opening a book is not reading it: "Leyendo" (and automatic narration)
     // only after a few page turns or two minutes in the book.
     pagesSeen.add(loc.cfi)
@@ -254,6 +259,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const followSentence = async (section: number, i: number, cfi: string) => {
     audioDriven = true
     savePosition(section, i, cfi)
+    void tracker.activity('listen', { section, sentence: i })
     if (ttsCfi) await view.deleteAnnotation({ value: ttsCfi })
     ttsCfi = cfi
     const c = currentDoc()
@@ -275,7 +281,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       sentence: (s, i, cfi) => void followSentence(s, i, cfi),
       status: (m, busy) => player?.setStatus(m, busy),
       playing: p => { player?.setPlaying(p); shell.classList.toggle('playing', p) },
-      time: (s, time, dur) => player?.setTime(s, time, dur),
+      time: (s, time, dur) => { player?.setTime(s, time, dur); if (narr?.playing) void tracker.activity('listen') },
       // Phone/tablet: the chapter has no audio and can't be requested from here:
       // a short message and the player closes (option B, picked 2026-10-22).
       missing: () => { toast(t.chapterNoAudioPhone); void hidePlayer() },
@@ -352,6 +358,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   return () => {
     allowSleep()
+    void tracker.close()
+    document.removeEventListener('visibilitychange', onHidden)
     offPrefs()
     offChange()
     document.removeEventListener('keydown', onKey)
