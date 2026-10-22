@@ -303,3 +303,17 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(.75); } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation:none; } }
 
+
+/* Speed (design proposal pending) */
+.rates { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-top:4px; }
+.rates.small { grid-template-columns:repeat(5, 1fr); margin-top:14px; }
+.rate { height:48px; border-radius:16px; border:none; background:var(--surface2); color:var(--ink); font-size:15px; font-weight:800; cursor:pointer; }
+.rates.small .rate { height:38px; border-radius:12px; font-size:13px; }
+.rate.active { background:var(--indigo); color:var(--onAccent); }
+.ratefine { display:flex; align-items:center; justify-content:center; gap:22px; margin:6px 0 10px; }
+.ratefine .iconbtn { width:48px; height:48px; background:var(--surface2); box-shadow:none; color:var(--ink); }
+.ratebig { font-size:40px; font-weight:800; letter-spacing:-.03em; min-width:120px; text-align:center; }
+.ratestep { display:flex; align-items:center; background:var(--surface2); border-radius:18px; flex:none; }
+.ratestep button:not(.speedbtn) { width:32px; height:36px; border:none; background:none; color:var(--inkSoft); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.ratestep .ico { width:16px; height:16px; }
+.ratestep .speedbtn { min-width:48px; padding:0; background:none; }
