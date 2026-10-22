@@ -129,7 +129,7 @@ export async function loadStats(): Promise<Stats> {
   }
 }
 
-function langPace(lang: string, ss: ReadingSession[], now = Date.now()): LangPace {
+export function langPace(lang: string, ss: ReadingSession[], now = Date.now()): LangPace {
   const win = (from: number, to: number) => {
     let w = 0, sec = 0
     for (const s of ss) { const t = Date.parse(s.started_at); if (t >= from && t < to) { w += s.pace_words; sec += s.pace_seconds } }

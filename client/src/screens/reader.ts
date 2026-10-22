@@ -93,16 +93,27 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     if (!c || c.doc !== doc) { c = { doc, sentences: segmentDocument(doc, lang) }; segCache.set(index, c) }
     return c.sentences
   }
-  const currentDoc = () => view.renderer.getContents()[0]
+  // The section a document belongs to, from its own load event: while the next
+  // section loads, the renderer already reports the new index next to the old
+  // document (and can emit a relocate with that mix), which once saved the
+  // start of the previous chapter as the reading position.
+  const docIndex = new WeakMap<Document, number>()
+  const currentDoc = () => {
+    const c = view.renderer.getContents()[0]
+    return c ? { ...c, index: docIndex.get(c.doc) ?? c.index } : undefined
+  }
 
   // ---- Position -------------------------------------------------------------
   const tracker = new SessionTracker(book.id, wordIndex(manifest), await habitualPace(langOf(book)))
   const onHidden = () => { if (document.visibilityState === 'hidden') { tracker.interrupt(); void tracker.save() } }
   document.addEventListener('visibilitychange', onHidden)
   let lastLoc: Location | null = null
+  let textLoc: Location | null = null  // last location that starts in the text
   let audioDriven = false
   let lastSaved = ''
+  let lastPos: { section: number; sentence: number } | null = null
   const savePosition = (section: number, sentence: number, cfi: string) => {
+    lastPos = { section, sentence }
     if (cfi === lastSaved) return
     lastSaved = cfi
     void positions.save({ book_id: book.id, cfi, section, sentence, fraction: lastLoc?.fraction ?? null })
@@ -117,7 +128,14 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     slider.value = String(loc.fraction ?? 0)
     if (audioDriven && narr?.playing) return  // while listening, the voice sets the position
     const c = currentDoc()
-    if (!c || !loc.range) return
+    if (!c || !loc.range || loc.range.startContainer.ownerDocument !== c.doc) return
+    if (loc.section && loc.section.current !== c.index) return  // mid section change (see docIndex)
+    // A page with no visible text (e.g. only a hidden footnote at the end of a
+    // chapter) is reported as starting at the top of the section: it would read
+    // as "back to sentence 0". Keep the previous position instead.
+    const start = loc.range.startContainer
+    if (start === c.doc.body || start === c.doc.documentElement) return
+    textLoc = loc
     const sents = sentencesOf(c.index, c.doc)
     if (!sents.length) { savePosition(c.index, 0, loc.cfi); return }
     const k = sentenceAt(sents, loc.range.startContainer, loc.range.startOffset)
@@ -215,9 +233,10 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   // ---- Taps: page turns, chrome, and seek-to-sentence while listening --------
   let chromeOn = false
-  const setChrome = (on: boolean) => { chromeOn = on; shell.classList.toggle('chrome-off', !on) }
+  const setChrome = (on: boolean) => { chromeOn = on; shell.classList.toggle('chrome-off', !on); if (on) tracker.taint() }
   view.addEventListener('load', ((e: CustomEvent<{ doc: Document; index: number }>) => {
     const { doc, index } = e.detail
+    docIndex.set(doc, index)
     sentencesOf(index, doc)
     doc.addEventListener('selectionchange', () => { clearTimeout(selTimer); selTimer = window.setTimeout(() => showSelection(doc, index), 250) })
     doc.addEventListener('keydown', onKey)
@@ -290,9 +309,10 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   const currentSentence = (): { section: number; sentence: number } => {
     const c = currentDoc()
-    if (!c || !lastLoc?.range) return { section: manifest?.sections[0]?.i ?? 0, sentence: 0 }
+    const r = textLoc?.range
+    if (!c || !r || r.startContainer.ownerDocument !== c.doc) return lastPos ?? { section: manifest?.sections[0]?.i ?? 0, sentence: 0 }
     const sents = sentencesOf(c.index, c.doc)
-    return { section: c.index, sentence: sents.length ? sentenceAt(sents, lastLoc.range.startContainer, lastLoc.range.startOffset) : 0 }
+    return { section: c.index, sentence: sents.length ? sentenceAt(sents, r.startContainer, r.startOffset) : 0 }
   }
 
   const showPlayer = async () => {

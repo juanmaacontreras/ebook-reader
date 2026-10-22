@@ -7,13 +7,13 @@ vi.mock('../src/data/sync', () => ({ syncSoon: () => {} }))
 
 const { SessionTracker, cleanPace, wordIndex } = await import('../src/data/sessions')
 
-// One sentence of 100 words per "page", in two sections.
-const words100 = Array(100).fill('palabra').join(' ') + '.'
+// One sentence of 100 words per "page", in two sections; then short ones.
+const words = (n: number) => Array(n).fill('palabra').join(' ') + '.'
 const manifest = {
   v: 1 as const, lang: 'es',
   sections: [
-    { i: 0, label: 'Uno', sentences: Array.from({ length: 30 }, () => ({ c: '', t: words100, b: 0 })) },
-    { i: 2, label: 'Dos', sentences: [{ c: '', t: 'Seis siete ocho nueve.', b: 0 }] },
+    { i: 0, label: 'Uno', sentences: Array.from({ length: 30 }, () => ({ c: '', t: words(100), b: 0 })) },
+    { i: 2, label: 'Dos', sentences: [{ c: '', t: 'Seis siete ocho nueve.', b: 0 }, ...Array.from({ length: 40 }, () => ({ c: '', t: words(10), b: 0 }))] },
   ],
 }
 const last = () => saved.at(-1)!
@@ -28,7 +28,7 @@ describe('wordIndex', () => {
 describe('cleanPace', () => {
   it('uses fixed bounds until the habitual speed is known, then relative ones', () => {
     expect([cleanPace(60, null), cleanPace(250, null), cleanPace(800, null)]).toEqual([false, true, false])
-    expect([cleanPace(80, 300), cleanPace(150, 300), cleanPace(700, 300), cleanPace(800, 300)]).toEqual([false, true, true, false])
+    expect([cleanPace(110, 300), cleanPace(130, 300), cleanPace(650, 300), cleanPace(670, 300)]).toEqual([false, true, true, false])
   })
 })
 
@@ -76,6 +76,35 @@ describe('SessionTracker', () => {
     await page(tr, 3, 30_000)
     await tr.close()
     expect(last()).toMatchObject({ seconds: 54, words: 200, pace_words: 200, pace_seconds: 54 })
+  })
+
+  it('times a sentence that spans two pages together with the next page', async () => {
+    const tr = new SessionTracker('b1', wordIndex(manifest))
+    await page(tr, 0, 0)
+    await page(tr, 0, 24_000)   // next page still starts inside sentence 0
+    await page(tr, 1, 24_000)   // 100 words over both pages: 48 s
+    await tr.close()
+    expect(last()).toMatchObject({ seconds: 48, pace_words: 100, pace_seconds: 48 })
+  })
+
+  it('adds up small steps (scrolling, title pages) until there are enough words', async () => {
+    const tr = new SessionTracker('b1', wordIndex(manifest))
+    const at = async (k: number, after: number) => { vi.advanceTimersByTime(after); await tr.activity('read', { section: 2, sentence: k }) }
+    await at(0, 0)
+    for (let k = 1; k <= 9; k++) await at(k, 2500)   // 4 + 8×10 = 84 words in 22.5 s = 224 wpm
+    await tr.close()
+    expect(last()).toMatchObject({ pace_words: 84, pace_seconds: 23 })   // stored in whole seconds
+  })
+
+  it('leaves out of the speed a page where the menus or a selection were opened', async () => {
+    const tr = new SessionTracker('b1', wordIndex(manifest))
+    await page(tr, 0, 0)
+    await page(tr, 1, 24_000)
+    tr.taint()
+    await page(tr, 2, 40_000)
+    await page(tr, 3, 24_000)
+    await tr.close()
+    expect(last()).toMatchObject({ seconds: 88, pace_words: 200, pace_seconds: 48 })
   })
 
   it('doesn\'t count jumps or going back as words', async () => {

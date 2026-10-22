@@ -9,12 +9,17 @@
 // Words: progress through the book's sentence manifest; jumps (TOC, slider,
 // seeking) and going back don't count.
 //
-// Reading speed (pace_words / pace_seconds) uses only "clean" pages, judged one
-// by one when the page is turned: enough words to be meaningful, read with the
-// app in the foreground, at a believable speed. Too fast = skimming, too slow =
-// left open or distracted; both are left out. The bounds start fixed and then
-// follow the reader's own habitual speed in that language. A distracted page
-// also counts at most a few times its normal reading time in the totals.
+// Reading speed (pace_words / pace_seconds) uses only "clean" stretches of
+// reading, judged as the position moves forward. A stretch runs from one
+// point to the next once at least PACE.minWords words have been passed, so a
+// title page or a sentence that spans two pages joins the next page instead of
+// being timed alone (in scrolled mode, the small steps add up the same way).
+// It counts when it was read with the app in the foreground, without menus or
+// a selection open, with no idle gap, no jump and no going back, and at a
+// believable speed: too fast = skimming, too slow = left open or distracted.
+// The bounds start fixed and then follow the reader's own habitual speed in
+// that language. A too-slow page also counts at most a few times its normal
+// reading time in the totals.
 
 import { isAndroid, isTauri } from '../platform'
 import { db } from './db'
@@ -31,7 +36,7 @@ const SAVE_MS = 30_000
 export const PACE = {
   minWords: 40,            // fewer words (titles, images): too noisy to time
   fixed: [80, 700],        // words per minute, until the reader's own speed is known
-  relative: [0.35, 2.5],   // then: this range around the habitual speed
+  relative: [0.4, 2.2],    // then: this range around the habitual speed
   absolute: [40, 1200],    // never outside this
   slowTimeFactor: 3,       // a too-slow page counts at most 3× its normal time
   habitualDays: 90,
@@ -88,12 +93,17 @@ export class SessionTracker {
   private lastWords: number | null = null
   private lastSave = 0
   private interrupted = false
+  private anchor: { t: number; w: number } | null = null  // start of the stretch being timed for speed
+  private tainted = false
 
   /** habitual: reading speed in this book's language (habitualPace), null while unknown. */
   constructor(private bookId: string, private wordsAt: (section: number, sentence: number) => number | null, private habitual: number | null = null) {}
 
-  /** The app went to the background: the page being read doesn't count. */
+  /** The app went to the background: the page being read doesn't count at all. */
   interrupt(): void { this.interrupted = true }
+
+  /** Menus, a selection, a dialog: the page counts as time, not for speed. */
+  taint(): void { this.tainted = true }
 
   /** Something happened: kind of activity and, when known, the sentence reached. */
   async activity(kind: 'read' | 'listen', at?: { section: number; sentence: number }): Promise<void> {
@@ -115,22 +125,31 @@ export class SessionTracker {
     // Reading with the app in the background in between: nothing about that page is known.
     const blind = kind === 'read' && this.interrupted
     this.interrupted = false
-    if (!blind && gap > 0 && gap * 1000 <= GAP_MS[kind]) {
+    const idle = gap * 1000 > GAP_MS[kind]
+    if (!blind && !idle && gap > 0) {
       let t = gap
-      if (kind === 'read' && forward) {
-        const wpm = d / (gap / 60)
-        if (d >= PACE.minWords && cleanPace(wpm, this.habitual)) { r.pace_words += d; r.pace_seconds += gap }
-        // Too slow for the reader: probably not reading the whole time.
-        if (this.habitual && wpm < this.habitual * PACE.relative[0]) t = Math.min(gap, PACE.slowTimeFactor * d / this.habitual * 60)
-      }
+      // Too slow for the reader: probably not reading the whole time.
+      if (kind === 'read' && forward && d >= PACE.minWords && this.habitual && d / (gap / 60) < this.habitual * PACE.relative[0])
+        t = Math.min(gap, PACE.slowTimeFactor * d / this.habitual * 60)
       r.seconds += t
       r.ended_at = new Date(now).toISOString()
     }
     if (!blind && forward) r.words += d
+    if (kind === 'read' && w !== null) {
+      const a = this.anchor
+      if (!a || blind || idle || !(forward || d === 0)) this.restart(now, w)
+      else if (w - a.w >= PACE.minWords) {
+        const dw = w - a.w, dt = (now - a.t) / 1000
+        if (!this.tainted && dt > 0 && cleanPace(dw / (dt / 60), this.habitual)) { r.pace_words += dw; r.pace_seconds += dt }
+        this.restart(now, w)
+      }
+    } else if (kind === 'listen') this.anchor = null
     if (w !== null) this.lastWords = w
     this.last = now
     if (now - this.lastSave > SAVE_MS) await this.save()
   }
+
+  private restart(t: number, w: number) { this.anchor = { t, w }; this.tainted = false }
 
   /** The reader is closing or the app goes to the background. */
   async close(): Promise<void> {

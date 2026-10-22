@@ -289,6 +289,18 @@ screens and bottom sheets on phones. The reading surface has its own themes
   progress: gaps up to 5 min (reading) / 30 s (listening) count as time, a 10 min
   break starts a new session, jumps don't count as words. Read/listen colors
   `--c-read` / `--c-listen` (blue/orange, CVD-checked in both themes).
+- 2026-10-22: reading speed must be as precise as possible (user: "la resolvemos
+  hoy y me olvido"). Only clean stretches count (`pace_words`/`pace_seconds`,
+  see the header of `data/sessions.ts`): ≥40 words, app in the foreground, no
+  menus/selection, no idle gap/jump/going back, 80–700 wpm until the habitual
+  speed in that language is known, then 0.4–2.2× of it. Resumen shows speed per
+  language, vs 3 months earlier (or the first month), a line chart week by week
+  (month by month after half a year; option A over bars and a sparkline) and
+  speed per book. Verified end to end with a fake clock (phone + tablet):
+  skimming, a page left open and a page with menus are left out.
+  Found on the way: the last page of a chapter can be reported as starting at
+  the section's <body> (only a hidden footnote visible), which saved "sentence 0"
+  as the position; the reader now ignores such relocates (`reader.ts`).
 
 ## Current state (2026-10-21)
 

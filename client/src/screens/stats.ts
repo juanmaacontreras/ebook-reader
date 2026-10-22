@@ -134,24 +134,20 @@ function bars(buckets: Bucket[]): HTMLElement {
 
 // Reading speed: the current number, how it compares with before, and its
 // evolution (one point per week, or per month after half a year).
-// DESIGN PROPOSAL (pending): a = line chart, b = bars, c = compact sparkline.
+// A line chart (option A, picked 2026-10-22 over bars and a compact sparkline).
 function paceCard(st: Stats, lang: string | null, setLang: (l: string) => void): HTMLElement {
-  const v = document.documentElement.dataset.variant ?? 'a'
   const all = st.pace.read
   const p = all.find(x => x.lang === lang) ?? all[0] as LangPace | undefined
   const listen = h('div.plisten', h('i.sw.listen'),
     h('div', h('span', t.listeningPace), h('b', st.pace.listen ? t.wpm(st.pace.listen) : t.notEnough), h('small', t.atRate(rateLabel(st.rate)))))
   const head = h('div.cardhd', h('b', t.pace),
     p && all.length > 1 ? segmented(all.map(x => [x.lang, t.langName(x.lang)] as [string, string]), p.lang, setLang, 'small.mini') : null)
-  if (!p || !p.now) return h('div.card.scard' + (v === 'c' ? '' : '.span2'), head, h('div.pempty', t.notEnoughPace), listen)
+  if (!p || !p.now) return h('div.card.scard.span2', head, h('div.pempty', t.notEnoughPace), listen)
   const pct = p.before ? Math.round(100 * (p.now - p.before) / p.before) : null
   const delta = pct !== null ? h('div.delta' + (pct > 0 ? '.up' : ''), t.paceDelta(pct, p.beforeKind)) : null
   const hero = h('div.phero', h('span.hero.num', String(p.now)), h('span.unit', t.wpm(p.now).replace(/^\d+ /, '')))
   const label = h('div.ptrend', p.monthly ? t.paceMonthly : t.paceWeekly)
-  if (v === 'c') return h('div.card.scard', head,
-    h('div.pcompact', h('div', hero, delta), p.series.length > 1 ? sparkline(p.series.map(x => x.wpm)) : null), listen)
-  return h('div.card.scard.span2', head, hero, delta,
-    p.series.length > 1 ? [label, v === 'b' ? paceBars(p) : paceLine(p)] : null, listen)
+  return h('div.card.scard.span2', head, hero, delta, p.series.length > 1 ? [label, paceLine(p)] : null, listen)
 }
 
 const fmtPoint = (p: LangPace, x: LangPace['series'][number]) =>
@@ -184,32 +180,6 @@ function paceLine(p: LangPace): HTMLElement {
     h('div.paxis', h('span.num', t.wpmShort(Math.round(hi))), h('span.num', t.wpmShort(Math.round(lo)))),
     h('div.pplot', svg, dots, h('span.plast.num', { style: `top:${100 * Y(last.wpm) / H}%` }, String(last.wpm))),
     h('div.pxl', h('span', fmtDate(p.series[0].start)), h('span', fmtDate(last.start))))
-}
-
-function paceBars(p: LangPace): HTMLElement {
-  const { lo, hi } = scale(p.series.map(x => x.wpm))
-  const n = p.series.length
-  return h('div.pchart',
-    h('div.paxis', h('span.num', t.wpmShort(Math.round(hi))), h('span.num', t.wpmShort(Math.round(lo)))),
-    h('div.pbars', p.series.map((x, i) => h('div.pb' + (i === n - 1 ? '.last' : ''), { title: fmtPoint(p, x) },
-      h('i', { style: `height:${Math.max(4, 100 * (x.wpm - lo) / (hi - lo))}%` })))),
-    h('div.pxl', h('span', fmtDate(p.series[0].start)), h('span', fmtDate(p.series[n - 1].start))))
-}
-
-function sparkline(vals: number[]): HTMLElement {
-  const W = 120, H = 44, n = vals.length
-  const { lo, hi } = scale(vals)
-  const ns = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(ns, 'svg')
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`)
-  svg.classList.add('spark')
-  const pts = vals.map((v, i) => [3 + i * (W - 6) / (n - 1), 4 + (H - 8) * (1 - (v - lo) / (hi - lo))])
-  const path = document.createElementNS(ns, 'path')
-  path.setAttribute('d', pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(''))
-  const dot = document.createElementNS(ns, 'circle')
-  dot.setAttribute('cx', String(pts[n - 1][0])); dot.setAttribute('cy', String(pts[n - 1][1])); dot.setAttribute('r', '4')
-  svg.append(path, dot)
-  return svg as unknown as HTMLElement
 }
 
 function niceStep(max: number): number {

@@ -404,11 +404,3 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .pdots i.last::after { inset:1px; }
 .plast { position:absolute; right:0; transform:translate(0, -150%); font-size:12px; font-weight:800; color:var(--ink); }
 .pxl { grid-column:2; display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); font-weight:600; margin-top:6px; }
-.pbars { display:flex; align-items:flex-end; gap:2px; border-bottom:1px dashed var(--line); }
-.pb { flex:1; height:100%; display:flex; align-items:flex-end; justify-content:center; cursor:default; }
-.pb i { display:block; width:100%; max-width:22px; border-radius:4px 4px 0 0; background:color-mix(in srgb, var(--c-read) 55%, var(--surface2)); }
-.pb.last i { background:var(--c-read); }
-.pcompact { display:flex; align-items:center; gap:14px; justify-content:space-between; }
-.spark { width:120px; height:44px; flex:none; overflow:visible; }
-.spark path { fill:none; stroke:var(--c-read); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-.spark circle { fill:var(--c-read); stroke:var(--card); stroke-width:2; }
