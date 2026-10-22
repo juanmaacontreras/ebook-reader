@@ -240,9 +240,9 @@ screens and bottom sheets on phones. The reading surface has its own themes
   request with the default voice, only after a successful pull). Voice list:
   short by default (default + fast + current), the rest behind "Más voces";
   Spanish clips are offered only on the LatAm model. Books can be renamed
-  (book menu → "Editar título y autor"). Pending pick: cut-off covers on narrow
-  phones, options A/B/C behind `?variant=a|b|c` (CSS at the end of app.css);
-  once picked, keep that one and delete the others.
+  (book menu → "Editar título y autor"). Covers: real proportions (no crop) and,
+  on phones, the keep-reading card stacked with a large cover (option B, picked
+  over A = bigger side-by-side cover and C = fixed tiles with blurred fill).
 
 ## Current state (2026-10-21)
 

@@ -174,7 +174,7 @@ async function fillCover(el: HTMLElement, b: Book) {
     }
     if (blob) { url = URL.createObjectURL(blob); coverUrls.set(b.id, url) }
   }
-  if (url) el.prepend(h('img.bg', { src: url, alt: '', draggable: false, 'aria-hidden': 'true' }), h('img.fg', { src: url, alt: '', loading: 'lazy', draggable: false }))
+  if (url) el.prepend(h('img', { src: url, alt: '', loading: 'lazy', draggable: false }))
   else {
     const c = PLACEHOLDER_COLORS[parseInt(b.sha256.slice(0, 2), 16) % PLACEHOLDER_COLORS.length]
     el.prepend(h('div.ph', { '--c': c }, h('b', b.title), h('span', b.author ?? '')))
