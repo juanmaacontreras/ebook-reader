@@ -102,8 +102,10 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
     const cover = h('div.cover.hero-cover')
     void fillCover(cover, b)
     const pct = Math.round(fraction * 100)
+    // Long-press / right-click opens the book menu here too (rename, status...).
+    const coverPress = pressable(cover, () => openBook(b.id), () => bookMenu(b))
     return h('div.card.herocard',
-      cover,
+      coverPress,
       h('div.mid',
         h('div.eyebrow', t.filterReading),
         h('div.ht', b.title),
@@ -120,15 +122,9 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
     if (audio) cover.append(h('div.badge', { title: t.hasAudio }, icon('headphones')))
     if (!downloaded) cover.append(h('div.cloud', { title: t.notDownloaded }, icon('cloud')))
     const pct = fraction != null ? Math.round(fraction * 100) : null
-    let pressTimer: number | undefined
     const el = h('div.bookc', {
       role: 'button', tabIndex: 0,
-      onclick: () => openBook(b.id),
-      oncontextmenu: (e: Event) => { e.preventDefault(); bookMenu(b) },
       onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') openBook(b.id) },
-      onpointerdown: () => { pressTimer = window.setTimeout(() => { pressTimer = undefined; bookMenu(b) }, 550) },
-      onpointerup: () => clearTimeout(pressTimer),
-      onpointerleave: () => clearTimeout(pressTimer),
     },
     cover,
     h('div.meta',
@@ -137,6 +133,7 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
       b.status === 'finished' ? h('div.prog', h('span.pct', t.finishedLabel))
         : pct != null && pct > 0 ? h('div.prog', h('div.track', h('div.fill', { style: `width:${pct}%` })), h('span.pct.num', t.percentRead(pct)))
           : h('div.prog', h('span.pct', t.notStarted))))
+    pressable(el, () => openBook(b.id), () => bookMenu(b))
     return el
   }
 
@@ -161,6 +158,19 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
   const off2 = onSyncState(setSub)
   void render()
   return () => { off1(); off2() }
+}
+
+// Tap opens; long-press (touch) or right-click opens the menu, and the click that
+// follows a long-press doesn't also open the book.
+function pressable<T extends HTMLElement>(el: T, tap: () => void, menu: () => void): T {
+  let timer: number | undefined
+  let fired = false
+  el.addEventListener('pointerdown', () => { fired = false; timer = window.setTimeout(() => { fired = true; menu() }, 550) })
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, () => clearTimeout(timer))
+  el.addEventListener('click', () => { if (!fired) tap(); fired = false })
+  el.addEventListener('contextmenu', e => { e.preventDefault(); clearTimeout(timer); if (!fired) menu(); fired = true })
+  el.style.cursor = 'pointer'
+  return el
 }
 
 async function fillCover(el: HTMLElement, b: Book) {
