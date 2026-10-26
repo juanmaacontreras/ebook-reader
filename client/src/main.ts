@@ -1,7 +1,7 @@
 import './styles/tokens.css'
 import './styles/app.css'
 import { App } from '@capacitor/app'
-import { configured, demo, supabase } from './data/supabase'
+import { configured, demo, supabase, userId } from './data/supabase'
 import { db } from './data/db'
 import { startRealtime, stopRealtime, sync, syncState } from './data/sync'
 import { autoNarrateAll } from './data/store'
@@ -44,8 +44,7 @@ async function main(): Promise<void> {
   const variant = new URLSearchParams(location.search).get('variant')
   if (variant) document.documentElement.dataset.variant = variant
   applyUiTheme()
-  const { data } = await supabase.auth.getSession()
-  if (!demo && (!configured || !data.session)) {
+  if (!demo && (!configured || !(await userId()))) {
     authScreen(root)
     supabase.auth.onAuthStateChange((event, session) => { if (event === 'SIGNED_IN' && session) location.reload() })
     return

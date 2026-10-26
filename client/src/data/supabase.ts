@@ -12,8 +12,19 @@ export const supabase: SupabaseClient = createClient(SUPABASE_URL || 'http://loc
   realtime: { params: { eventsPerSecond: 5 } },
 })
 
+// The session saved on this device, even with an expired access token.
+// Offline, getSession() can't refresh an expired token and returns null, but
+// supabase-js keeps the stored session on network errors and refreshes it once
+// the device is back online. That's enough to open the local library and read.
+function storedUserId(): string | null {
+  try {
+    const raw = localStorage.getItem('atril-auth')
+    return raw ? (JSON.parse(raw) as { user?: { id?: string } }).user?.id ?? null : null
+  } catch { return null }
+}
+
 export async function userId(): Promise<string | null> {
   if (demo) return 'demo'
   const { data } = await supabase.auth.getSession()
-  return data.session?.user.id ?? null
+  return data.session?.user.id ?? storedUserId()
 }
