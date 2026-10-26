@@ -1,12 +1,15 @@
 package com.atril.reader;
 
 import android.content.ComponentName;
+import android.content.Context;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.annotation.NonNull;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.session.MediaController;
 import androidx.media3.session.SessionToken;
@@ -91,6 +94,15 @@ public class NarrationPlayerPlugin extends Plugin {
         public void onPlaybackStateChanged(int playbackState) {
             if (controller != null && playbackState == Player.STATE_ENDED) notifyListeners("ended", state(controller));
         }
+
+        @Override
+        public void onPlayerError(@NonNull PlaybackException error) {
+            // Without this a broken file just plays nothing (see controller.ts onError).
+            if (controller == null) return;
+            JSObject o = state(controller);
+            o.put("message", error.getErrorCodeName() + ": " + error.getMessage());
+            notifyListeners("error", o);
+        }
     };
 
     private MediaItem item(JSONObject t, String book, String author, String artwork, int id) {
@@ -158,6 +170,15 @@ public class NarrationPlayerPlugin extends Plugin {
 
     @PluginMethod
     public void getState(PluginCall call) { withController(call, c -> call.resolve(state(c))); }
+
+    @PluginMethod
+    public void getVolume(PluginCall call) {
+        AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        JSObject o = new JSObject();
+        o.put("level", am.getStreamVolume(AudioManager.STREAM_MUSIC));
+        o.put("max", am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        call.resolve(o);
+    }
 
     @PluginMethod
     public void release(PluginCall call) {

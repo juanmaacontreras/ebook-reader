@@ -27,6 +27,9 @@ import { openReadingSettings } from './readingSettings'
 import { openToc } from './toc'
 
 interface Annotation { value: string; color?: string; kind?: 'tts' | 'hl'; id?: string }
+// A touch counts as a tap if the finger moved at most this many px, this fast.
+const TAP_SLOP = 12
+const TAP_MS = 450
 
 export async function readerScreen(root: HTMLElement, bookId: string, goBack: () => void): Promise<() => void> {
   const book = await books.get(bookId)
@@ -241,25 +244,55 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     doc.addEventListener('selectionchange', () => { clearTimeout(selTimer); selTimer = window.setTimeout(() => showSelection(doc, index), 250) })
     doc.addEventListener('keydown', onKey)
     doc.addEventListener('pointerdown', stayAwake)
-    doc.addEventListener('click', (ev: MouseEvent) => {
+    // foliate-js calls preventDefault() on every touchmove to drag the page, and
+    // that cancels the click: a tap with the slightest finger jitter used to do
+    // nothing. Taps on touch screens are detected here from the touch events
+    // (after the paginator's snap, which runs in the next frame); click stays
+    // for the mouse and is ignored right after a touch tap.
+    let touch: { x: number; y: number; t: number; multi: boolean } | null = null
+    let touchTapAt = 0
+    doc.addEventListener('touchstart', (ev: TouchEvent) => {
+      const p = ev.touches[0]
+      touch = ev.touches.length === 1 && p ? { x: p.clientX, y: p.clientY, t: ev.timeStamp, multi: false } : null
+    }, { passive: true })
+    doc.addEventListener('touchmove', (ev: TouchEvent) => { if (touch && ev.touches.length > 1) touch.multi = true }, { passive: true })
+    doc.addEventListener('touchend', (ev: TouchEvent) => {
+      const p = ev.changedTouches[0]
+      const s = touch
+      touch = null
+      if (!s || !p || s.multi || ev.touches.length) return
+      if (Math.hypot(p.clientX - s.x, p.clientY - s.y) > TAP_SLOP || ev.timeStamp - s.t > TAP_MS) return
       if ((ev.target as Element).closest?.('a[href]')) return
-      if (!doc.getSelection()?.isCollapsed) return
-      const frame = doc.defaultView?.frameElement as HTMLElement | null
-      const x = ev.clientX + (frame?.getBoundingClientRect().left ?? 0) - stage.getBoundingClientRect().left
-      const w = stage.clientWidth
-      if (narr?.status && x > w * 0.2 && x < w * 0.8 && playerVisible) {
-        const pos = caretAt(doc, ev.clientX, ev.clientY)
-        if (pos) {
-          const k = sentenceAt(sentencesOf(index, doc), pos.node, pos.offset)
-          void narr.seekSentence(index, k)
-          return
-        }
-      }
-      if (prefs().flow === 'paginated' && x < w * 0.25) void view.prev()
-      else if (prefs().flow === 'paginated' && x > w * 0.75) void view.next()
-      else setChrome(!chromeOn)
+      touchTapAt = performance.now()
+      const { clientX, clientY } = p
+      requestAnimationFrame(() => setTimeout(() => onTap(doc, index, clientX, clientY)))
+    })
+    doc.addEventListener('click', (ev: MouseEvent) => {
+      if (performance.now() - touchTapAt < 800) return
+      if ((ev.target as Element).closest?.('a[href]')) return
+      onTap(doc, index, ev.clientX, ev.clientY)
     })
   }) as EventListener)
+
+  // A tap: page turn on the edges, seek-to-sentence in the middle while the
+  // player is open, otherwise show/hide the toolbars.
+  const onTap = (doc: Document, index: number, clientX: number, clientY: number) => {
+    if (!doc.getSelection()?.isCollapsed) return
+    const frame = doc.defaultView?.frameElement as HTMLElement | null
+    const x = clientX + (frame?.getBoundingClientRect().left ?? 0) - stage.getBoundingClientRect().left
+    const w = stage.clientWidth
+    if (narr?.status && x > w * 0.2 && x < w * 0.8 && playerVisible) {
+      const pos = caretAt(doc, clientX, clientY)
+      if (pos) {
+        const k = sentenceAt(sentencesOf(index, doc), pos.node, pos.offset)
+        void narr.seekSentence(index, k)
+        return
+      }
+    }
+    if (prefs().flow === 'paginated' && x < w * 0.25) void view.prev()
+    else if (prefs().flow === 'paginated' && x > w * 0.75) void view.next()
+    else setChrome(!chromeOn)
+  }
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') void view.goLeft()
@@ -304,6 +337,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       // Phone/tablet: the chapter has no audio and can't be requested from here:
       // a short message and the player closes (option B, picked 2026-10-22).
       missing: () => { toast(t.chapterNoAudioPhone); void hidePlayer() },
+      notice: m => toast(m, undefined, 6000),
     }).init()
   }
 

@@ -1,5 +1,6 @@
 package com.atril.reader;
 
+import android.media.AudioManager;
 import android.os.Bundle;
 import androidx.activity.EdgeToEdge;
 import com.getcapacitor.BridgeActivity;
@@ -15,5 +16,9 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         // Edge to edge: transparent system bars over the app's paper color.
         EdgeToEdge.enable(this);
+        // The volume keys always change the media volume here, not the ringer:
+        // this is a reading/listening app, and a muted media volume means narration
+        // that seems to play but can't be heard.
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
     }
 }
