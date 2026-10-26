@@ -19,6 +19,7 @@ export interface EngineEvents {
   state: (s: EngineState) => void      // play/pause changes, seeks
   track: (index: number) => void       // moved to another track (end of chapter)
   ended: () => void                    // finished the last track
+  error: (index: number, message: string) => void  // a track could not be played
 }
 
 export interface AudioEngine {
@@ -30,6 +31,8 @@ export interface AudioEngine {
   setRate(rate: number): Promise<void>
   state(): Promise<EngineState>
   on<K extends keyof EngineEvents>(event: K, fn: EngineEvents[K]): void
+  // Media volume of the device, 0..1 (null where the platform doesn't say).
+  volume(): Promise<number | null>
   destroy(): Promise<void>
 }
 

@@ -8,7 +8,7 @@ import { onChange } from '../data/sync'
 import type { Book, Manifest, Narration, NarrationChapter, Timing } from '../data/types'
 import { audioManager, isAndroid } from '../platform'
 import { t } from '../strings'
-import { ensureChapter, lazySrc, resolveLazy } from './cache'
+import { deleteLocalChapter, ensureChapter, lazySrc, resolveLazy } from './cache'
 import { SKIP_SECONDS, type AudioEngine, type Track } from './engine'
 
 export interface NarrationHooks {
@@ -18,13 +18,20 @@ export interface NarrationHooks {
   time(section: number, time: number, duration: number): void
   // A chapter without audio on a device that can't request it (phone/tablet).
   missing(section: number): void
+  // Something the listener should know (no volume, a chapter that can't play).
+  notice(message: string): void
 }
 
 interface Loaded { section: number; timings: Timing[]; duration: number }
 
+// One engine at a time. Leaving a book releases it asynchronously; a book
+// opened meanwhile must wait for that release, or (Android, one shared native
+// player) the release would stop and clear the new book's playlist: silence.
 let enginePromise: Promise<AudioEngine> | null = null
+let releasing: Promise<void> = Promise.resolve()
 async function engine(): Promise<AudioEngine> {
   enginePromise ??= (async () => {
+    await releasing.catch(() => {})
     if (isAndroid) {
       const { NativeEngine } = await import('./nativeEngine')
       return new NativeEngine().init()
@@ -44,6 +51,9 @@ export class NarrationController {
   private lastSentence = -1
   private unsub: (() => void) | null = null
   private appending = false
+  private destroyed = false
+  private repaired = new Set<number>()  // sections whose local copy was re-downloaded after a playback error
+  private volumeChecked = false
   playing = false
   rate = 1
   current = { section: -1, sentence: -1 }
@@ -103,9 +113,21 @@ export class NarrationController {
     }
     this.pendingStart = null
     this.hooks.status(t.downloadingAudio(0), true)
-    const { src, timings } = await ensureChapter(ch, f => this.hooks.status(t.downloadingAudio(Math.round(f * 100)), true))
+    let got: { src: string; timings: Timing[] }
+    try {
+      got = await ensureChapter(ch, f => this.hooks.status(t.downloadingAudio(Math.round(f * 100)), true))
+    } catch (e) {
+      console.warn('chapter download failed', e)
+      this.hooks.status(null)
+      if (!this.destroyed) this.hooks.notice(t.audioDownloadFailed)
+      return
+    }
+    const { src, timings } = got
     this.hooks.status(null)
+    // The book may have been closed during the download: don't start playing behind the user's back.
+    if (this.destroyed) return
     this.eng ??= await engine()
+    if (this.destroyed) return
     this.bindEngine()
     const start = timings.find(x => x.i >= sentence)?.s ?? timings.at(-1)?.s ?? 0
     this.loaded = [{ section, timings, duration: ch.duration }]
@@ -129,6 +151,23 @@ export class NarrationController {
     this.eng.on('state', s => { this.setPlaying(s.playing); this.tick(s.index, s.time) })
     this.eng.on('track', i => { this.lastSentence = -1; void this.fillAhead(); this.tick(i, 0) })
     this.eng.on('ended', () => void this.onEnded())
+    this.eng.on('error', (i, message) => void this.onError(i, message))
+  }
+
+  // A chapter that can't be played is usually a broken local copy (a download
+  // cut short, a file the system cleaned up): delete it and download it again,
+  // once. If it still fails, say so instead of staying silent.
+  private async onError(index: number, message: string): Promise<void> {
+    console.warn('playback error', index, message)
+    const l = this.loaded[index]
+    const ch = l && this.chapters.get(l.section)
+    this.setPlaying(false)
+    if (!l || !ch || this.destroyed) return
+    if (this.repaired.has(l.section)) { this.hooks.notice(t.audioUnplayable); return }
+    this.repaired.add(l.section)
+    await deleteLocalChapter(ch)
+    const sentence = this.current.section === l.section ? Math.max(0, this.current.sentence) : 0
+    await this.start(l.section, sentence)
   }
 
   // Download and queue the following chapters while the current one plays.
@@ -196,7 +235,16 @@ export class NarrationController {
     this.hooks.sentence(l.section, tm.i, tm.cfi)
   }
 
-  async play() { await this.eng?.play() }
+  async play() {
+    await this.eng?.play()
+    // "No se escucha nada": the most common cause is the media volume at zero
+    // (the volume keys change the ringer when nothing is playing). Say it once per book.
+    if (this.eng && !this.volumeChecked) {
+      this.volumeChecked = true
+      const v = await this.eng.volume().catch(() => null)
+      if (v === 0) this.hooks.notice(t.volumeZero)
+    }
+  }
   async pause() { await this.eng?.pause() }
   async toggle() {
     if (!this.eng || !this.loaded.length) {
@@ -251,13 +299,16 @@ export class NarrationController {
   }
 
   async destroy() {
+    this.destroyed = true
     clearInterval(this.poll)
     this.unsub?.()
-    if (this.eng) {
-      await this.eng.destroy()
-      enginePromise = null
-    }
+    const eng = this.eng
     this.eng = null
+    if (eng) {
+      enginePromise = null
+      releasing = eng.destroy()
+      await releasing
+    }
   }
 }
 

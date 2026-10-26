@@ -13,6 +13,9 @@ export class WebEngine extends Emitter implements AudioEngine {
     this.audio.addEventListener('play', () => this.emitState())
     this.audio.addEventListener('pause', () => this.emitState())
     this.audio.addEventListener('seeked', () => this.emitState())
+    this.audio.addEventListener('error', () => {
+      if (this.audio.getAttribute('src')) this.emit('error', this.index, this.audio.error?.message || `code ${this.audio.error?.code}`)
+    })
     const ms = navigator.mediaSession
     if (ms) {
       ms.setActionHandler('play', () => void this.play())
@@ -32,9 +35,12 @@ export class WebEngine extends Emitter implements AudioEngine {
     if (this.audio.src !== src) {
       if (this.audio.src.startsWith('blob:')) URL.revokeObjectURL(this.audio.src)
       this.audio.src = src
-      await new Promise<void>(resolve => {
-        const done = () => { this.audio.removeEventListener('loadedmetadata', done); resolve() }
+      await new Promise<void>((resolve, reject) => {
+        const off = () => { this.audio.removeEventListener('loadedmetadata', done); this.audio.removeEventListener('error', fail) }
+        const done = () => { off(); resolve() }
+        const fail = () => { off(); reject(new Error('audio unplayable')) }
         this.audio.addEventListener('loadedmetadata', done)
+        this.audio.addEventListener('error', fail)
         this.audio.load()
       })
     }
@@ -71,6 +77,7 @@ export class WebEngine extends Emitter implements AudioEngine {
     this.emitState()
   }
   async setRate(rate: number) { this.rate = rate; this.audio.playbackRate = rate }
+  async volume() { return null }  // browsers don't expose the system volume
   async state(): Promise<EngineState> { return { index: this.index, time: this.audio.currentTime, playing: !this.audio.paused } }
   async destroy() {
     this.audio.pause()

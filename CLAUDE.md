@@ -331,6 +331,20 @@ Not verified yet / to watch:
   still receiving plugin events; worst case it's pushed when the app resumes.
 - Chatterbox's first chapter takes ~2.5× its length to generate; Kokoro ~1 min.
 
+## App gotchas
+
+- **Taps that did nothing (2026-10-26).** foliate-js calls `preventDefault()` on
+  every `touchmove` to drag the page, which cancels the `click`: a tap with a few
+  px of finger jitter was lost. The reader detects taps from touch events
+  (`TAP_SLOP`/`TAP_MS` in `reader.ts`) and ignores the click that may follow.
+- **Silent narration (2026-10-26, cause not confirmed on a device).** Covered:
+  player errors now reach JS (`error` engine event) and a broken local chapter is
+  deleted and downloaded again once; a toast warns when the media volume is 0 and
+  the volume keys always control media volume (`MainActivity`); leaving and
+  reopening a book no longer lets the old engine's release stop the new playlist
+  (`releasing` in `controller.ts`); a start that finishes after the book was
+  closed doesn't play.
+
 ## Worker gotchas (learned the hard way)
 
 - **GPU out of memory, 2026-10-22, ~3 h lost overnight.** Two causes stacked:
