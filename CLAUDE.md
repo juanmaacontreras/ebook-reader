@@ -319,6 +319,10 @@ screens and bottom sheets on phones. The reading surface has its own themes
   My recommendation: 1 + 3. Also mentioned: an Android e-ink reader (Boox,
   PocketBook) running Atril itself would be best at everything but needs an
   e-ink mode. A simulation artifact of how option 1+3 would look was shown.
+  Same day: **the phone/tablet/desktop apps must not change** ("que siga
+  funcionando como funciona ahora"): the Kobo is just one more device. Its
+  data lands in what already exists (position + "Ir" offer, highlights panel,
+  Resumen's per-device numbers); no Kobo screens, buttons or settings in Atril.
 
 ## Current state (2026-10-21)
 
