@@ -323,6 +323,10 @@ screens and bottom sheets on phones. The reading surface has its own themes
   funcionando como funciona ahora"): the Kobo is just one more device. Its
   data lands in what already exists (position + "Ir" offer, highlights panel,
   Resumen's per-device numbers); no Kobo screens, buttons or settings in Atril.
+  Also: highlights Atril → Kobo are **not wanted** (Kobo → Atril is enough), so
+  never write `KoboReader.sqlite`. Position sync both ways is what matters most:
+  check how often stock firmware syncs on its own (wake, closing a book, sleep,
+  periodic?) and, if needed, have the helper push position more often.
 
 ## Current state (2026-10-21)
 
