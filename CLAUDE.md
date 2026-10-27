@@ -302,6 +302,24 @@ screens and bottom sheets on phones. The reading surface has its own themes
   the section's <body> (only a hidden footnote visible), which saved "sentence 0"
   as the position; the reader now ignores such relocates (`reader.ts`).
 
+- 2026-10-27: **Kobo, plan only (nothing built; user said "no hagas nada").**
+  The user is buying a Kobo Clara BW (6" e-ink, grayscale), will never use the
+  Kobo store (DRM-free EPUBs only). Ranked, ignoring setup effort (sync,
+  looks, comfort once set up): (1) stock Nickel reader + Atril acting as the
+  Kobo sync server (change `api_endpoint` in `Kobo eReader.conf`, like
+  calibre-web's Kobo sync): books arrive over Wi-Fi, position + finished state
+  sync; KEPUB `koboSpan`s are near sentence-level, so position can map closely
+  to the manifest; whether highlights can come through Kobo's annotation API is
+  unconfirmed; (2) KOReader + a kosync-compatible endpoint + OPDS catalog
+  (two-way position, books on demand, plainer UI, firmware updates can break
+  the launcher); (3) stock reader + an on-device helper that, on Wi-Fi, uploads
+  `KoboReader.sqlite` data (highlights, position, time read) and fetches new
+  books (Kobo → Atril only; never write the Kobo DB); (4) USB cable import on
+  the desktop app; (5) Kobo's Dropbox/Drive (books only); (6) Plato (no sync).
+  My recommendation: 1 + 3. Also mentioned: an Android e-ink reader (Boox,
+  PocketBook) running Atril itself would be best at everything but needs an
+  e-ink mode. A simulation artifact of how option 1+3 would look was shown.
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
