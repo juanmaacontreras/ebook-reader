@@ -328,6 +328,48 @@ screens and bottom sheets on phones. The reading surface has its own themes
   check how often stock firmware syncs on its own (wake, closing a book, sleep,
   periodic?) and, if needed, have the helper push position more often.
 
+- 2026-10-28: **narration only on purpose ("que sea consciente, cuando yo
+  quiero"). Agreed plan, nothing built yet.** Why: the worker ran at every
+  login and auto-narrated; Chatterbox held 3 of the GTX 1650's 4 GB and 98% of
+  the GPU, starving Hyprland and every app (visual glitches, a frozen terminal,
+  thousands of `nvidia-drm ... Failed to allocate NVKMS memory for GEM object`
+  in the kernel log). Interim fix, outside this repo: `atril-tts.service` is
+  disabled and hypridle (`~/dotfiles/config/hypr/hypridle.conf`) starts it
+  after 15 idle minutes and stops it on input. The plan replaces that:
+  1. Nothing generates by itself: drop automatic narration ("Generar audio
+     solo", `autoNarrate`, `autoNarrateAll`, the automatic 'ahead' scope).
+  2. The user starts it from the desktop app's Audios screen ("Generar ahora"),
+     choosing what: this chapter, the next 3, or the whole book.
+  3. It runs until that is done or the user taps "Parar", even with the screen
+     or the app closed — the decision was already made (tying it to an open
+     screen was considered and dropped: Chatterbox needs ~2.5 h of GPU per hour
+     of audio, it would never finish a book).
+  4. Visible while it runs: a Waybar module in `~/dotfiles` (same shape as
+     `custom/timer` for Bitácora), click to stop. The PC is never busy
+     without the user knowing why.
+  5. VRAM guard: before loading a model, `torch.cuda.mem_get_info`; always
+     leave ~600 MB to the desktop (Waydroid also uses this GPU). Not enough →
+     don't load, say so in `worker_status` (shown in the app), never thrash.
+  6. Phone/tablet: Audios stays read-only with real state ("Generando en la PC
+     · capítulo 4 de 12 · faltan ~40 min", "Listo", "Sin audio · pedilo desde
+     la PC", "PC apagada"); chapters appear as they finish; playing a chapter
+     without audio still says "Pedilo desde la PC". New: **"Parar" is allowed
+     on phones** (stopping only frees the GPU). Starting from a phone is not:
+     the PC would start working with nobody in front of it.
+  7. The worker stays running and cheap when there is nothing to do (no model
+     loaded, heartbeat on, so the app never shows "PC apagada" wrongly). When
+     this ships: `./run.sh --service` again, delete the second `listener` in
+     `hypridle.conf`, and update the "Idle behavior" note in
+     `~/dotfiles/CLAUDE.md`.
+  Open design point: `status` is app-owned (see "Narration rows have two
+  owners"), so a stop from the Waybar click must not have the worker write
+  `status` itself — route it through an app-owned write or add an explicit
+  stop-request column; decide when building. UI text and layout of the
+  Audios changes go through screenshot variants first (working rules).
+  Verify: with a job running and the desktop in use, no `NVKMS` errors in
+  `journalctl -k`; with no job, `nvidia-smi` shows no worker memory; "Parar"
+  from a phone frees the GPU within a chunk.
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
@@ -391,6 +433,9 @@ Not verified yet / to watch:
   NVIDIA GTX 1650 under Hyprland (checked with a screenshot).
 - Worker: systemd user service `atril-tts` (`./run.sh --service`), linked to the
   user's account (`tts-worker/.session.json`). Logs: `journalctl --user -u atril-tts`.
+  Since 2026-10-28 it is **disabled** and started by hypridle only while the PC
+  is idle — interim, until on-purpose narration ships (User decisions,
+  2026-10-28). Don't re-enable it before that.
 - Signing-key backup: `~/.config/atril/signing/`.
 
 ## Applying schema changes
