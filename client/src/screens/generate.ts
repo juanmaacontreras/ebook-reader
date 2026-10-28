@@ -14,8 +14,6 @@ import { confirmDialog, openDialog, segmented } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
 
-const variant = new URLSearchParams(location.search).get('variant') ?? 'A'
-
 export async function loadManifest(book: Book): Promise<Manifest | null> {
   try {
     let blob = await local.get(`text:${book.id}`)
@@ -71,7 +69,7 @@ export async function openGenerateSheet(book: Book, startSection?: number, onSta
     const todo = jobSections({ scope: sc, start_section: start }, ids).filter(i => !done.has(i))
     return { todo: todo.length, seconds: todo.reduce((a, i) => a + (chars.get(i) ?? 0), 0) * rate(voice) }
   }
-  const scopes: [Exclude<NarrationScope, 'ahead'>, string][] = [['chapter', t.scopeChapter], ['next', t.scopeNext], ['all', t.scopeAll]]
+  const scopes: [Exclude<NarrationScope, 'ahead'>, string][] = (['chapter', 'next', 'all'] as const).map(k => [k, t.scopeShort(k).replace(/^./, c => c.toUpperCase())])
 
   openDialog(t.generateNow, (body, close) => {
     const go = async (sc: NarrationScope) => {
@@ -91,29 +89,16 @@ export async function openGenerateSheet(book: Book, startSection?: number, onSta
         voices.length > shown.length || showAll
           ? h('button.textbtn', { style: 'align-self:flex-start', onclick: () => { showAll = !showAll; render() } }, showAll ? t.fewerVoices : t.moreVoices) : null)
       const head = h('div.genhead', coverMini(book), h('div', h('b', book.title), h('small', t.fromChapter(startLabel))))
-      if (variant === 'B') {
-        // B: segmented choice + one estimate line + a single primary button.
-        const p = plan(scope)
-        clear(body, head,
-          h('label.flabel', t.generateWhat),
-          segmented(scopes.map(([k]) => [k, t.scopeShort(k).replace(/^./, c => c.toUpperCase())] as [typeof k, string]), scope, v => { scope = v; render() }),
-          h('p.genest', p.todo ? t.pcTimeLong(minutes(p.seconds)) : t.alreadyDone),
-          h('label.flabel', t.voice), voiceList,
-          h('p.muted', { style: 'font-size:12.5px;margin:12px 0 0' }, t.generateRuns),
-          h('div.dbtns', h('button.btn.small.ghost', { onclick: () => close() }, t.cancel),
-            h('button.btn.small.primary', { disabled: !p.todo, onclick: () => void go(scope) }, icon('play'), t.generateNow)))
-      } else {
-        // A: voice first, then each option is a big row with its own estimate; tap = start.
-        clear(body, head,
-          h('label.flabel', t.voice), voiceList,
-          h('label.flabel', t.generateWhat),
-          h('div.genopts', scopes.map(([sc, label]) => {
-            const p = plan(sc)
-            return h('button.genopt', { disabled: !p.todo, onclick: () => void go(sc) },
-              h('span.gl', label), h('span.gt', p.todo ? t.pcTime(minutes(p.seconds)) : t.alreadyDone), icon('play'))
-          })),
-          h('p.muted', { style: 'font-size:12.5px;margin:12px 0 0' }, t.generateRuns))
-      }
+      // Option B (picked by the user 2026-10-28 over big per-option rows): segmented choice + one estimate line + a single primary button.
+      const p = plan(scope)
+      clear(body, head,
+        h('label.flabel', t.generateWhat),
+        segmented(scopes, scope, v => { scope = v; render() }),
+        h('p.genest', p.todo ? t.pcTimeLong(minutes(p.seconds)) : t.alreadyDone),
+        h('label.flabel', t.voice), voiceList,
+        h('p.muted', { style: 'font-size:12.5px;margin:12px 0 0' }, t.generateRuns),
+        h('div.dbtns', h('button.btn.small.ghost', { onclick: () => close() }, t.cancel),
+          h('button.btn.small.primary', { disabled: !p.todo, onclick: () => void go(scope) }, icon('play'), t.generateNow)))
     }
     render()
   })

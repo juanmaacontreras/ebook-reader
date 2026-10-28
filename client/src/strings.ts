@@ -157,12 +157,8 @@ export const t = {
   // Generating on purpose (desktop): what, from where, with which voice.
   generateNow: 'Generar ahora',
   generateWhat: '¿Qué genero?',
-  scopeChapter: 'Este capítulo',
-  scopeNext: 'Este y los 2 siguientes',
-  scopeAll: 'Todo el libro',
   scopeShort: (scope: string) => ({ chapter: 'este capítulo', next: '3 capítulos', all: 'todo el libro' } as Record<string, string>)[scope] ?? '',
   fromChapter: (label: string) => `Desde ${label}`,
-  pcTime: (d: string) => `~${d} de PC`,
   pcTimeLong: (d: string) => `Tu PC va a tardar ~${d}`,
   alreadyDone: 'Ya está hecho',
   generateRuns: 'Sigue aunque cierres la app, hasta que termine o toques Parar.',

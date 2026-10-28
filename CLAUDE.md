@@ -370,6 +370,19 @@ screens and bottom sheets on phones. The reading surface has its own themes
   `journalctl -k`; with no job, `nvidia-smi` shows no worker memory; "Parar"
   from a phone frees the GPU within a chunk.
 
+- 2026-10-28 (later): **on-purpose narration built** (not merged until the
+  schema is applied). Jobs: `narrations.scope` chapter/next/all counted from
+  `start_section`, app-owned `started_at`; a Waybar stop is the worker-owned
+  `stopped_at` (runnable iff active and stopped_at < started_at,
+  `worker/jobs.py`) — this settles the open design point above. VRAM guard via
+  nvidia-smi (no CUDA context), reason in `worker_status.notice`; an idle
+  worker unloads and re-execs itself to drop the CUDA context.
+  `tts-worker/waybar.py` prints the module JSON, `--stop` on click. "Generar
+  ahora" sheet (`screens/generate.ts`): option B (segmented what + one
+  estimate line + voice + one button), picked over A (a big row per option).
+  Still to do when it ships: dotfiles (Waybar module, drop the hypridle
+  listener, `./run.sh --service`).
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
