@@ -3,8 +3,7 @@ import './styles/app.css'
 import { App } from '@capacitor/app'
 import { configured, demo, supabase, userId } from './data/supabase'
 import { db } from './data/db'
-import { startRealtime, stopRealtime, sync, syncState } from './data/sync'
-import { autoNarrateAll } from './data/store'
+import { startRealtime, stopRealtime, sync } from './data/sync'
 import { applyUiTheme } from './platform/theme'
 import { checkForUpdate } from './platform/updater'
 import { isAndroid } from './platform'
@@ -51,9 +50,7 @@ async function main(): Promise<void> {
   }
   window.addEventListener('hashchange', () => void route())
   await route()
-  // Auto-narration only after a successful pull: a request made before knowing
-  // the remote narration row could overwrite the voice chosen on another device.
-  void sync().then(() => { if (syncState === 'idle') void autoNarrateAll() })
+  void sync()
   startRealtime()
   void checkForUpdate()
 

@@ -1,69 +1,51 @@
 import type { NarrationController } from '../audio/controller'
 import { cachedCount, deleteBookAudio, downloadAll } from '../audio/cache'
-import { DEFAULT_VOICES, defaultVoice, featuredVoices } from '../audio/voices'
-import { narration, workerStatus } from '../data/store'
+import { jobRunning, narration, workerStatus } from '../data/store'
 import { db } from '../data/db'
 import type { NarrationChapter } from '../data/types'
-import type { Book, VoiceInfo } from '../data/types'
+import type { Book } from '../data/types'
 import { t } from '../strings'
-import { confirmDialog, openDialog } from '../ui/dialog'
+import { openDialog } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
 import { audioManager } from '../platform'
+import { minutes, openGenerateSheet } from './generate'
 
-// Narration sheet: voice choice, generation status, and this device's copy.
+// Narration sheet: generation status, "Generar ahora" (desktop), "Parar" (any
+// device), and this device's copy.
 export function openNarrationSheet(book: Book, narr: NarrationController, section: number, onStarted?: () => void): void {
   openDialog(t.narration, (body, close) => {
-    const lang = (book.language ?? 'es').split('-')[0]
     const statusBox = h('div')
-    const voicesBox = h('div.voices')
     const actions = h('div.dbtns')
-    let selected = narr.voice ?? defaultVoice(lang)
-    let voices: VoiceInfo[] = DEFAULT_VOICES
-    let showAll = false
     let downloading: string | null = null
     const downloadBox = h('div')
-    body.append(statusBox, downloadBox, h('label.flabel', t.voice), voicesBox, actions)
+    body.append(statusBox, downloadBox, actions)
 
     const render = async () => {
       await narr.refresh()
       const row = narr.status
       const ws = await workerStatus().catch(() => null)
-      if (ws?.voices?.length) voices = ws.voices
       const mins = ws ? Math.round((Date.now() - Date.parse(ws.heartbeat)) / 60000) : null
       const online = mins != null && mins < 3
       const total = narr.sections.length
       const done = narr.readyCount()
       const local = row ? await cachedCount(book.id, row.voice) : 0
+      const running = jobRunning(row)
+      const cur = ws?.current?.book_id === book.id ? ws.current : null
+      const left = cur?.until && cur.until * 1000 > Date.now() ? t.genLeft(minutes(cur.until - Date.now() / 1000)) : null
       clear(statusBox,
         h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px' },
           h('span.chip' + (online ? '.live' : ''), icon('pc', 'ico'), online ? t.workerOnline : mins == null ? t.workerNever : t.workerOffline(t.ago(mins)))),
-        h('p', !row ? t.audioNone + ' ' + t.audioNoneHint
+        h('p', !row || (!done && !running) ? (audioManager ? t.audioNone + ' ' + t.audioNoneHint : t.bookNoAudioPhone)
           : row.state === 'purged' ? t.audioPurged
-          : row.state === 'error' ? t.audioError(row.error ?? '')
-          : row.status === 'paused' ? `${t.audioPaused} (${done}/${total})`
-          : done >= total ? `${t.audioReady}. ${t.audioDownloaded(local, total)}`
-          : row.scope === 'ahead' ? `${row.state === 'ready' ? t.audioAheadReady : t.audioAheadGenerating} (${done}/${total}). ${t.aheadHint}`
-          : done ? t.audioGenerating(done, total) : t.audioQueued))
-      if (!audioManager) {
-        // Phone/tablet: listen and manage this device's copy, nothing else.
-        clear(statusBox, h('p', !row || !done ? t.bookNoAudioPhone
-          : `${done >= total ? t.audioReady : t.audioGenerating(done, total)}. ${t.audioDownloaded(local, total)}`),
-          row && done ? h('p.muted', { style: 'font-size:13px' }, t.audioFromPc) : null)
-        voicesBox.previousElementSibling?.remove()
-        voicesBox.remove()
-      }
-      const usable = voices.filter(v => v.languages.includes(lang))
-      const featured = featuredVoices(lang, row?.voice ?? null)
-      const shown = showAll ? usable : usable.filter(v => featured.includes(v.id) || v.id === selected)
-      const voiceBtn = (v: VoiceInfo) => h('button.voice' + (v.id === selected ? '.sel' : ''), { onclick: () => { selected = v.id; void render() } },
-        icon(v.cloned ? 'wave' : 'headphones'),
-        h('span.vn', v.label, h('small', v.cloned ? t.voiceCloned : t.voiceFast)),
-        v.id === row?.voice ? icon('check') : null)
-      if (audioManager) clear(voicesBox, shown.map(voiceBtn),
-        usable.length > shown.length || showAll
-          ? h('button.textbtn', { style: 'align-self:flex-start', onclick: () => { showAll = !showAll; void render() } }, showAll ? t.fewerVoices : t.moreVoices)
-          : null)
+          : running && row.state === 'error' ? t.audioError(row.error ?? '')
+          : running && cur ? [t.generatingOnPc, cur.total ? t.chapterOf((cur.done ?? 0) + 1, cur.total) : null, left].filter(Boolean).join(' · ')
+          : running && row.state !== 'ready' ? `${online ? t.audioQueued : t.pcOff} (${done}/${total})`
+          : done >= total ? t.audioReady
+          : t.chaptersReady(done, total)),
+        done ? h('p.muted', { style: 'font-size:13.5px' }, t.audioDownloaded(local, total)) : null,
+        !audioManager && done ? h('p.muted', { style: 'font-size:13px' }, t.audioFromPc) : null,
+        online && ws?.notice && running ? h('p.muted', { style: 'font-size:13px' }, t.gpuBusy(ws.notice)) : null)
 
       // This device's copy: download everything that's ready, in one go.
       const ready = row ? (await db.byIndex<NarrationChapter & { cached?: boolean }>('chapters', 'book_id', book.id)).filter(c => c.voice === row.voice) : []
@@ -87,31 +69,13 @@ export function openNarrationSheet(book: Book, narr: NarrationController, sectio
         : !missing.length ? h('p.muted', { style: 'font-size:13.5px' }, t.allAudioHere)
         : downloadAllBtn)
 
-      if (!audioManager) {
-        clear(actions,
-          row && local ? h('button.btn.small.ghost', { style: 'margin-right:auto', onclick: async () => { await deleteBookAudio(book.id); void render() } }, t.deleteLocalAudio) : null,
-          row && done ? h('button.btn.small.primary', { onclick: () => { close(); onStarted?.() } }, icon('play'), t.listen)
-            : h('button.btn.small.primary', { onclick: () => close() }, t.ok))
-        return
-      }
-      const sameVoice = row && row.voice === selected
-      const generating = row && row.state !== 'ready' && row.state !== 'purged' && done < total
       clear(actions,
         row && local ? h('button.btn.small.ghost', { style: 'margin-right:auto', onclick: async () => { await deleteBookAudio(book.id); void render() } }, t.deleteLocalAudio) : null,
-        sameVoice && generating && row.status === 'active'
-          ? h('button.btn.small.ghost', { onclick: async () => { await narration.setPaused(book.id, true); void render() } }, t.pauseGeneration) : null,
-        sameVoice && row.scope === 'ahead' && done < total
-          ? h('button.btn.small.ghost', { onclick: async () => { await narration.setScope(book.id, 'all'); void render() } }, t.generateAll) : null,
-        sameVoice && (row.status === 'paused' || row.state === 'error')
-          ? h('button.btn.small.ghost', { onclick: async () => { await narration.request(book.id, selected, section); void render() } }, t.resumeGeneration) : null,
-        sameVoice
-          ? h('button.btn.small.primary', { onclick: () => { close(); onStarted?.() } }, icon('play'), t.listen)
-          : h('button.btn.small.primary', { onclick: async () => {
-              if (row && done && !(await confirmDialog(t.changeVoice, t.changeVoiceWarn, t.changeVoice, true))) return
-              await narration.request(book.id, selected, section)
-              close()
-              onStarted?.()
-            } }, row ? t.changeVoice : t.generateAudio))
+        // Stopping only frees the PC's GPU: allowed from every device.
+        running && row?.state !== 'ready' ? h('button.btn.small.ghost', { onclick: async () => { await narration.stop(book.id); void render() } }, t.stop) : null,
+        audioManager ? h('button.btn.small' + (done ? '.ghost' : '.primary'), { onclick: () => { close(); void openGenerateSheet(book, section) } }, t.generateNow) : null,
+        done ? h('button.btn.small.primary', { onclick: () => { close(); onStarted?.() } }, icon('play'), t.listen)
+          : !audioManager ? h('button.btn.small.primary', { onclick: () => close() }, t.ok) : null)
     }
     void render()
   })
