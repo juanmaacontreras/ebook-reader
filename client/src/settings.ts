@@ -20,12 +20,11 @@ export interface Prefs {
   flow: Flow
   justify: boolean
   libraryFilter: 'reading' | 'to_read' | 'finished' | 'all'
-  autoNarrate: boolean
 }
 
 export const DEFAULT_PREFS: Prefs = {
   uiTheme: 'system', bookTheme: 'auto', font: 'serif', fontSize: 19, margins: 'm', spacing: 'normal',
-  flow: 'paginated', justify: true, libraryFilter: 'all', autoNarrate: true,
+  flow: 'paginated', justify: true, libraryFilter: 'all',
 }
 
 let cache: Prefs | null = null

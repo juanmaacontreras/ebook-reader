@@ -4,11 +4,9 @@
 import { db, kv } from './db'
 import { audioBucket, local } from './files'
 import { emit, syncSoon } from './sync'
-import { supabase } from './supabase'
-import { prefs } from '../settings'
-import { defaultVoice } from '../audio/voices'
+import { demo, supabase } from './supabase'
 import { audioManager } from '../platform'
-import type { Book, BookStatus, Highlight, HighlightColor, Local, Narration, NarrationChapter, Position, WorkerStatus } from './types'
+import type { Book, BookStatus, Highlight, HighlightColor, Local, Narration, NarrationChapter, NarrationScope, Position, WorkerStatus } from './types'
 
 const now = () => new Date().toISOString()
 
@@ -33,7 +31,6 @@ export const books = {
     // Finishing a book doesn't delete audio here: the PC's worker does it a day
     // later (a mistaken "terminado" can be undone meanwhile), and every device
     // drops its copy when the cloud one goes (deleted_chapters, sync.ts).
-    if (status === 'reading') await autoNarrate(id)
   },
   async edit(id: string, patch: { title: string; author: string | null }): Promise<void> {
     const b = await books.get(id)
@@ -42,22 +39,6 @@ export const books = {
     emit(['books'])
     syncSoon()
   },
-}
-
-// "Generar audio solo": a book that becomes "reading" gets a narration request
-// with the default voice for its language, starting where the user is.
-export async function autoNarrate(bookId: string): Promise<void> {
-  if (!audioManager || !prefs().autoNarrate) return
-  const [b, existing] = await Promise.all([books.get(bookId), narration.get(bookId)])
-  if (!b || b.status !== 'reading' || existing || !b.text_path) return
-  const pos = await positions.get(bookId)
-  await narration.request(bookId, defaultVoice((b.language ?? 'es').split('-')[0]), pos?.section ?? null, 'ahead')
-}
-
-// Books already in "reading" (on start, or when the setting is turned on).
-export async function autoNarrateAll(): Promise<void> {
-  if (!audioManager || !prefs().autoNarrate) return
-  for (const b of await books.all()) if (b.status === 'reading') await autoNarrate(b.id)
 }
 
 export const positions = {
@@ -95,35 +76,53 @@ export const highlights = {
   remove: (id: string) => highlights.update(id, { deleted: true }),
 }
 
+// Narration happens only on purpose (CLAUDE.md, 2026-10-28): a job runs from
+// the user's "Generar ahora" until it's done or someone stops it — "Parar" in
+// the app (status) or on the PC's Waybar (the worker's stopped_at).
+export function jobRunning(n: Narration | null | undefined): boolean {
+  if (!n || n.status !== 'active' || n.scope === 'ahead' || !n.started_at) return false
+  return !n.stopped_at || Date.parse(n.stopped_at) < Date.parse(n.started_at)
+}
+
+export const NEXT_CHAPTERS = 3  // tts-worker/worker/jobs.py
+
+// The chapters a job covers, from its start (same rule as the worker's job_sections).
+export function jobSections(n: Pick<Narration, 'scope' | 'start_section'>, sections: number[]): number[] {
+  if (!sections.length) return []
+  let k = sections.findIndex(s => n.start_section != null && s >= n.start_section)
+  if (k < 0) k = 0
+  if (n.scope === 'chapter') return [sections[k]]
+  if (n.scope === 'next') return sections.slice(k, k + NEXT_CHAPTERS)
+  return [...sections.slice(k), ...sections.slice(0, k)]
+}
+
 export const narration = {
   get: (bookId: string) => db.get<Local<Narration>>('narrations', bookId),
   async chapters(bookId: string): Promise<NarrationChapter[]> {
     return db.byIndex<NarrationChapter>('chapters', 'book_id', bookId)
   },
-  async request(bookId: string, voice: string, startSection: number | null, scope?: Narration['scope']): Promise<void> {
+  // "Generar ahora" (desktop only): what, from which chapter, with which voice.
+  async start(bookId: string, voice: string, startSection: number | null, scope: NarrationScope): Promise<void> {
+    if (!audioManager) return  // a phone never starts the PC
     const cur = await narration.get(bookId)
     const t = now()
     const row: Local<Narration> = {
-      book_id: bookId, voice, status: 'active', scope: scope ?? cur?.scope ?? 'ahead', start_section: startSection, priority_section: null,
-      requested_at: cur && cur.voice === voice ? cur.requested_at : t, updated_at: t,
-      state: cur && cur.voice === voice ? cur.state : 'waiting', current_section: null, error: null, _dirty: true,
+      book_id: bookId, voice, status: 'active', scope, start_section: startSection, priority_section: null,
+      // Re-asking while it runs keeps its place in the queue; anything else goes last.
+      requested_at: jobRunning(cur) && cur ? cur.requested_at : t, started_at: t, updated_at: t,
+      state: cur && cur.voice === voice && cur.state === 'generating' ? 'generating' : 'waiting',
+      current_section: null, stopped_at: cur?.stopped_at ?? null, error: null, _dirty: true,
     }
     await db.put('narrations', row)
     emit(['narrations'])
     syncSoon(200)
   },
   async prioritize(bookId: string, section: number): Promise<void> {
-    if (!audioManager) return  // phones never ask the PC for anything
+    // Only reorders a job that is running and covers that chapter; never starts one.
+    if (!audioManager) return
     const cur = await narration.get(bookId)
-    if (!cur || (cur.priority_section === section && cur.status === 'active')) return
-    await db.put('narrations', { ...cur, priority_section: section, status: 'active', updated_at: now(), _dirty: true })
-    emit(['narrations'])
-    syncSoon(200)
-  },
-  async setScope(bookId: string, scope: Narration['scope']): Promise<void> {
-    const cur = await narration.get(bookId)
-    if (!cur || (cur.scope === scope && cur.status === 'active')) return
-    await db.put('narrations', { ...cur, scope, status: 'active', updated_at: now(), _dirty: true })
+    if (!jobRunning(cur) || !cur || cur.priority_section === section) return
+    await db.put('narrations', { ...cur, priority_section: section, updated_at: now(), _dirty: true })
     emit(['narrations'])
     syncSoon(200)
   },
@@ -133,21 +132,21 @@ export const narration = {
     const cur = all.find(n => n.book_id === bookId)
     if (!cur) return
     const first = Math.min(...all.map(n => Date.parse(n.requested_at)))
-    await db.put('narrations', { ...cur, status: 'active', requested_at: new Date(first - 1000).toISOString(), updated_at: now(), _dirty: true })
+    await db.put('narrations', { ...cur, requested_at: new Date(first - 1000).toISOString(), updated_at: now(), _dirty: true })
     emit(['narrations'])
     syncSoon(200)
   },
-  // Free the cloud and this device; the row stays (paused) so automatic
-  // narration doesn't recreate it.
+  // Free the cloud and this device; the row stays (stopped) with its voice.
   async deleteAudio(bookId: string): Promise<void> {
-    await narration.setPaused(bookId, true)
+    await narration.stop(bookId)
     await purgeAudio(bookId)
     emit(['chapters', 'narrations'])
   },
-  async setPaused(bookId: string, paused: boolean): Promise<void> {
+  // "Parar": allowed on every device (stopping only frees the PC's GPU).
+  async stop(bookId: string): Promise<void> {
     const cur = await narration.get(bookId)
-    if (!cur) return
-    await db.put('narrations', { ...cur, status: paused ? 'paused' : 'active', updated_at: now(), _dirty: true })
+    if (!cur || cur.status === 'paused') return
+    await db.put('narrations', { ...cur, status: 'paused', updated_at: now(), _dirty: true })
     emit(['narrations'])
     syncSoon(200)
   },
@@ -169,7 +168,8 @@ async function purgeAudio(bookId: string): Promise<void> {
 }
 
 export async function workerStatus(): Promise<WorkerStatus | null> {
-  const { data } = await supabase.from('worker_status').select('heartbeat,voices,current,audio_bytes').maybeSingle()
+  if (demo) return (window as unknown as { __atrilWs?: WorkerStatus }).__atrilWs ?? null  // screenshots
+  const { data } = await supabase.from('worker_status').select('*').maybeSingle()
   return (data as WorkerStatus | null) ?? null
 }
 

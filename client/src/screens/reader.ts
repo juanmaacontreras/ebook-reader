@@ -336,7 +336,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       time: (s, time, dur) => { player?.setTime(s, time, dur); if (narr?.playing) void tracker.activity('listen') },
       // Phone/tablet: the chapter has no audio and can't be requested from here:
       // a short message and the player closes (option B, picked 2026-10-22).
-      missing: () => { toast(t.chapterNoAudioPhone); void hidePlayer() },
+      missing: () => { toast(audioManager ? t.chapterNoAudioPc : t.chapterNoAudioPhone); void hidePlayer() },
       notice: m => toast(m, undefined, 6000),
     }).init()
   }

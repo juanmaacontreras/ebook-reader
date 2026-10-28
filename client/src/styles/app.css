@@ -302,6 +302,18 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .pulse { width:8px; height:8px; border-radius:50%; background:currentColor; animation:pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(.75); } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation:none; } }
+.nowbtns { margin-top:12px; display:flex; gap:8px; }
+.meter .notice { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--paused);
+  background:var(--pausedSoft); border-radius:12px; padding:8px 10px; }
+.meter .notice .ico { width:16px; height:16px; flex:none; }
+.audios .crow { cursor:pointer; }
+
+/* "Generar ahora" sheet */
+.genhead { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+.genhead .cover.mini { width:40px; }
+.genhead b { display:block; font-size:15px; }
+.genhead small { display:block; color:var(--muted); font-size:12.5px; margin-top:2px; }
+.genest { font-size:14px; font-weight:700; margin:10px 0 2px; font-variant-numeric:tabular-nums; }
 
 
 /* Speed sheet */

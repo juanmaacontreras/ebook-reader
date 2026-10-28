@@ -9,8 +9,7 @@ import { openDialog, segmented } from '../ui/dialog'
 import { h } from '../ui/dom'
 import { icon } from '../ui/icons'
 import { checkForUpdate } from '../platform/updater'
-import { autoNarrateAll, workerStatus } from '../data/store'
-import { audioManager } from '../platform'
+import { workerStatus } from '../data/store'
 
 const mb = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1).replace('.', ',')} GB` : `${Math.round(bytes / 1e6)} MB`
 
@@ -22,11 +21,6 @@ export function openSettings(): void {
       h('label.flabel', t.appearance),
       segmented<UiTheme>([['system', t.appearanceSystem], ['light', t.themeLight], ['dark', t.themeDark]], prefs().uiTheme,
         v => void setPrefs({ uiTheme: v }).then(applyUiTheme)),
-      !audioManager ? null : h('label.setrow', h('span.lbl', t.autoNarrate, h('small', { style: 'display:block;font-weight:500;color:var(--muted);font-size:12.5px;margin-top:2px' }, t.autoNarrateHint)),
-        h('input', { type: 'checkbox', checked: prefs().autoNarrate, onchange: (e: Event) => {
-          const on = (e.target as HTMLInputElement).checked
-          void setPrefs({ autoNarrate: on }).then(() => { if (on) void autoNarrateAll() })
-        } })),
       h('label.flabel', t.account),
       h('div.setrow', icon('user'), h('span.lbl', data.user?.email ?? ''),
         h('button.btn.small.ghost', { onclick: async () => { await stopRealtime(); await supabase.auth.signOut(); close(); location.reload() } }, t.signOut)),

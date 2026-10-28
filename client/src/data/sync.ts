@@ -29,7 +29,7 @@ const SPECS: Spec[] = [
 const PUSHED: Table[] = ['books', 'positions', 'highlights', 'narrations', 'reading_sessions']
 const LOCAL_FIELDS = ['_dirty', '_upload', 'synced_at', 'timings', 'cached']
 // Columns the worker owns: never pushed from a device.
-const WORKER_FIELDS: Partial<Record<Table, string[]>> = { narrations: ['state', 'current_section', 'error'] }
+const WORKER_FIELDS: Partial<Record<Table, string[]>> = { narrations: ['state', 'current_section', 'error', 'stopped_at'] }
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
 

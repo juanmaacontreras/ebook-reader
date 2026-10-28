@@ -69,18 +69,23 @@ export interface Highlight {
 // (worker-owned, read-only here). See supabase/schema.sql.
 export type NarrationState = 'waiting' | 'generating' | 'ready' | 'error' | 'purged'
 
+export type NarrationScope = 'chapter' | 'next' | 'all' | 'ahead'
+
 export interface Narration {
   book_id: string
   voice: string
   status: 'active' | 'paused'
-  // 'ahead': only the next chapters from where the user is (automatic); 'all': the whole book.
-  scope: 'ahead' | 'all'
+  // What the user asked for, from start_section: that chapter, it + the next two,
+  // or the whole book. 'ahead' = the old automatic narration, never runs again.
+  scope: NarrationScope
   start_section: number | null
   priority_section: number | null
   requested_at: string
+  started_at: string | null  // last "Generar ahora"
   updated_at: string
   state: NarrationState
   current_section: number | null
+  stopped_at: string | null  // worker: stopped from the PC (Waybar)
   error: string | null
 }
 
@@ -102,7 +107,9 @@ export interface VoiceInfo { id: string; label: string; languages: string[]; clo
 export interface WorkerStatus {
   heartbeat: string
   voices: VoiceInfo[]
-  current: { book_id: string; section: number; voice: string } | null
+  // until: epoch seconds when the running job should end (worker's estimate).
+  current: { book_id: string; section: number; voice: string; title?: string; label?: string; done?: number; total?: number; until?: number } | null
+  notice?: string | null  // why the PC can't generate now (GPU busy)
   audio_bytes: number | null
 }
 

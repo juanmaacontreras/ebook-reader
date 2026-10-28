@@ -98,29 +98,40 @@ create index if not exists highlights_book on public.highlights (book_id);
 -- ===== Narration =============================================================
 
 -- One row per book. Two owners, never writing the same column:
---   the app:    voice, status (what the user wants), start/priority_section,
---               requested_at, updated_at (its clock; LWW between devices)
---   the worker: state, error, current_section (it never touches updated_at,
---               so it can't win or lose a LWW race against a device)
+--   the app:    voice, status (what the user wants), scope, start/priority_section,
+--               started_at, requested_at, updated_at (its clock; LWW between devices)
+--   the worker: state, error, current_section, stopped_at (it never touches
+--               updated_at, so it can't win or lose a LWW race against a device)
+-- Narration happens only on purpose: a job runs while status = 'active' and
+-- nobody stopped it after it was started (stopped_at < started_at). A stop from
+-- the PC itself (Waybar) is the worker's stopped_at; a stop from the app is status.
 create table if not exists public.narrations (
   book_id uuid primary key references public.books on delete cascade,
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
   voice text not null,                 -- "<engine>:<voice>", e.g. kokoro:ef_dora
   status text not null default 'active' check (status in ('active', 'paused')),
-  -- 'ahead': only the next few chapters from where the user is (automatic
-  -- narration); 'all': the whole book (asked for explicitly).
-  scope text not null default 'ahead' check (scope in ('ahead', 'all')),
+  -- What the user asked for, counted from start_section: 'chapter' (that one),
+  -- 'next' (that one and the next two), 'all' (the whole book). 'ahead' is the
+  -- old automatic narration, never run again.
+  scope text not null default 'all' check (scope in ('ahead', 'all', 'chapter', 'next')),
   start_section int,                   -- where the user was when they asked
   priority_section int,                -- the user jumped here: generate it next
   requested_at timestamptz not null default now(),
+  started_at timestamptz,              -- the user's last "Generar ahora"
   updated_at timestamptz not null default now(),
   state text not null default 'waiting'
     check (state in ('waiting', 'generating', 'ready', 'error', 'purged')),
   current_section int,
+  stopped_at timestamptz,              -- stopped from the PC (Waybar click)
   error text
 );
-alter table public.narrations add column if not exists scope text not null default 'ahead'
-  check (scope in ('ahead', 'all'));
+alter table public.narrations add column if not exists scope text not null default 'all';
+alter table public.narrations add column if not exists started_at timestamptz;
+alter table public.narrations add column if not exists stopped_at timestamptz;
+alter table public.narrations alter column scope set default 'all';
+alter table public.narrations drop constraint if exists narrations_scope_check;
+alter table public.narrations add constraint narrations_scope_check
+  check (scope in ('ahead', 'all', 'chapter', 'next'));
 
 -- One row per finished chapter. Written only by the worker.
 create table if not exists public.narration_chapters (
@@ -166,8 +177,10 @@ create table if not exists public.worker_status (
   heartbeat timestamptz not null default now(),
   voices jsonb not null default '[]',
   current jsonb,
+  notice text,                         -- why the PC can't generate right now (GPU busy)
   audio_bytes bigint
 );
+alter table public.worker_status add column if not exists notice text;
 
 -- ===== Triggers ==============================================================
 -- synced_at is the server clock at the last write. Devices pull "everything with

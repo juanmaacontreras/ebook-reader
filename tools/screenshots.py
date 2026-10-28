@@ -12,11 +12,13 @@ see CLAUDE.md "Screenshots") and a running `npm run dev` in client/.
 
 import argparse
 import asyncio
+import os
 from pathlib import Path
 
 from playwright.async_api import async_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
+AS_PHONE = False
 EPUB = ROOT / "client" / "tests" / "fixtures" / "muestra.epub"
 DEVICES = {
     "phone-narrow": {"viewport": {"width": 360, "height": 780}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True},
@@ -45,19 +47,22 @@ SEED_AUDIO = """async () => {
   const books = (await db.all('books')).sort((a, b) => a.title.localeCompare(b.title))
   const t0 = Date.now()
   const plan = [  // [state, status, scope, chapters ready, on device]
-    ['generating', 'active', 'ahead', 1, 1], ['waiting', 'active', 'all', 0, 0], ['ready', 'active', 'all', 3, 2],
-    ['ready', 'active', 'ahead', 2, 2], ['waiting', 'paused', 'ahead', 1, 0],
+    ['generating', 'active', 'all', 1, 1], ['waiting', 'active', 'next', 0, 0], ['ready', 'active', 'all', 3, 2],
+    ['ready', 'active', 'chapter', 1, 1], ['waiting', 'paused', 'all', 1, 0],
   ]
+  const started = new Date(t0 - 3600e3).toISOString()
   for (const [k, [state, status, scope, ready, dev]] of plan.entries()) {
     const b = books[k]; if (!b) break
     if (b.status === 'finished') { b.status = 'reading'; await db.put('books', b) }
     const voice = k === 3 ? 'kokoro:ef_dora' : 'chatterbox-latam:ar_elena'
     await db.put('narrations', { book_id: b.id, voice, status, scope, state, start_section: 0, priority_section: null,
-      current_section: state === 'generating' ? ready : null, error: null,
+      current_section: state === 'generating' ? ready : null, error: null, started_at: started, stopped_at: null,
       requested_at: new Date(t0 - (10 - k) * 60e3).toISOString(), updated_at: new Date(t0).toISOString() })
     for (let s = 0; s < ready; s++)
       await db.put('chapters', { book_id: b.id, voice, section: s, audio_path: 'x', duration: 1500, bytes: 13.8e6 + s * 9e5,
         created_at: new Date(t0).toISOString(), cached: s < dev })
+    if (k === 0) window.__atrilWs = { heartbeat: new Date(t0).toISOString(), voices: [], audio_bytes: null, notice: null,
+      current: { book_id: b.id, section: 1, voice, title: b.title, label: 'Capítulo 2', done: 1, total: 3, until: t0 / 1000 + 2400 } }
   }
 }"""
 
@@ -68,7 +73,7 @@ async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant:
     page = await ctx.new_page()
     page.on("pageerror", lambda e: errors.append(f"{device}/{scheme}: {e}"))
     page.on("console", lambda m: errors.append(f"{device}/{scheme} console: {m.text}") if m.type == "error" else None)
-    q = "?demo" + (f"&variant={variant}" if variant else "")
+    q = "?demo" + (f"&variant={variant}" if variant else "") + ("&as=phone" if AS_PHONE else "")
     await page.goto(f"{url}/{q}#/")
     await page.wait_for_selector(".fab")
     files = sorted(str(f) for f in library.glob("*.epub")) if library else [str(EPUB)]
@@ -91,8 +96,16 @@ async def shoot(browser, url: str, out: Path, device: str, scheme: str, variant:
         await page.evaluate(SEED_AUDIO)
         await page.goto(f"{url}/{q}#/audios")
         await page.wait_for_selector(".meter", timeout=20000)
+        await page.evaluate(SEED_AUDIO)  # the reload above dropped the fake worker status
         await page.wait_for_timeout(1500)
         await page.screenshot(path=out / f"{tag}-audios.png")
+        if await page.query_selector(".audios .hd .btn.primary"):
+            await page.click(".audios .hd .btn.primary")  # "Generar ahora" → pick a book → the sheet
+            await page.wait_for_timeout(500)
+            await page.screenshot(path=out / f"{tag}-pick-book.png")
+            await page.click(".dialog .choice")
+            await page.wait_for_timeout(1200)
+            await page.screenshot(path=out / f"{tag}-generate.png")
         await ctx.close()
         return
     await page.click(".bookc, .brow")
@@ -118,12 +131,16 @@ async def main() -> None:
     ap.add_argument("--library", help="folder of EPUBs to import instead of the sample (seeds some progress)")
     ap.add_argument("--only-library", action="store_true")
     ap.add_argument("--audios", action="store_true", help="seed narrations and capture the Audios screen")
+    ap.add_argument("--as-phone", action="store_true", help="the phone app (no audio management)")
     args = ap.parse_args()
+    global AS_PHONE
+    AS_PHONE = args.as_phone
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     errors: list[str] = []
     async with async_playwright() as p:
-        browser = await p.chromium.launch()
+        # CHROMIUM: a browser already on the machine (e.g. /opt/pw-browsers/chromium).
+        browser = await p.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
         try:
             for device in args.devices.split(","):
                 for scheme in args.schemes.split(","):
