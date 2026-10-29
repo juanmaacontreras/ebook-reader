@@ -380,7 +380,7 @@ screens and bottom sheets on phones. The reading surface has its own themes
   `tts-worker/waybar.py` prints the module JSON, `--stop` on click. "Generar
   ahora" sheet (`screens/generate.ts`): option B (segmented what + one
   estimate line + voice + one button), picked over A (a big row per option).
-  Dotfiles side done the same day: `custom/tts` Waybar module (runs
+  Dotfiles side done the same day: `custom/atril` Waybar module (runs
   `tts-worker/waybar.py` by path, so keep its location and `--stop` flag
   stable), hypridle listener removed, unit enabled again with `./run.sh --service`.
 
