@@ -250,7 +250,7 @@ let channel: ReturnType<typeof supabase.channel> | null = null
 export function startRealtime(): void {
   if (channel || demo) return
   channel = supabase.channel('atril-db')
-  for (const table of ['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status', 'deleted_books'])
+  for (const table of ['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status'])
     channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => syncSoon(300))
   channel.subscribe()
 }

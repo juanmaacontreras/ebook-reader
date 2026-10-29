@@ -278,12 +278,18 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status', 'deleted_books'] loop
+  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status'] loop
     if not exists (select 1 from pg_publication_tables
                    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;
   end loop;
+  -- The deletion logs stay out: a published table without a primary key can't
+  -- delete rows (their 60-day cleanup). The deleted row's own event wakes devices.
+  if exists (select 1 from pg_publication_tables
+             where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'deleted_books') then
+    alter publication supabase_realtime drop table public.deleted_books;
+  end if;
 end $$;
 
 -- ===== Storage ===============================================================
