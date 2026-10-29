@@ -3,7 +3,7 @@ import './styles/app.css'
 import { App } from '@capacitor/app'
 import { configured, demo, supabase, userId } from './data/supabase'
 import { db } from './data/db'
-import { startRealtime, stopRealtime, sync } from './data/sync'
+import { onChange, startRealtime, stopRealtime, sync } from './data/sync'
 import { applyUiTheme } from './platform/theme'
 import { checkForUpdate } from './platform/updater'
 import { isAndroid } from './platform'
@@ -52,6 +52,11 @@ async function main(): Promise<void> {
   await route()
   void sync()
   startRealtime()
+  // The open book was removed from the library on another device.
+  onChange(async changed => {
+    const m = location.hash.match(/^#\/book\/([\w-]+)/)
+    if (m && changed.has('books') && !(await db.get('books', m[1]))) location.replace('#/')
+  })
   void checkForUpdate()
 
   // Sync when coming back to the app, and every 5 minutes as a safety net

@@ -237,12 +237,35 @@ drop trigger if exists log_delete on public.narration_chapters;
 create trigger log_delete after delete on public.narration_chapters
   for each row execute function public.log_deleted_chapter();
 
+-- Books removed from the library ("Sacar de la biblioteca"). Deleting the row
+-- cascades to its position, highlights, narration and chapters, and leaves its
+-- reading sessions with book_id null; devices learn about it from this log and
+-- drop their local copy. Same shape and retention as deleted_chapters.
+create table if not exists public.deleted_books (
+  book_id uuid not null,
+  user_id uuid not null,
+  synced_at timestamptz not null default now()
+);
+create index if not exists deleted_books_synced on public.deleted_books (user_id, synced_at);
+
+create or replace function public.log_deleted_book() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.deleted_books (book_id, user_id) values (old.id, old.user_id);
+  delete from public.deleted_books where synced_at < now() - interval '60 days';
+  return old;
+end $$;
+
+drop trigger if exists log_delete on public.books;
+create trigger log_delete after delete on public.books
+  for each row execute function public.log_deleted_book();
+
 -- ===== Row level security ====================================================
 
 do $$
 declare t text;
 begin
-  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status', 'deleted_chapters', 'reading_sessions'] loop
+  foreach t in array array['books', 'positions', 'highlights', 'narrations', 'narration_chapters', 'worker_status', 'deleted_chapters', 'deleted_books', 'reading_sessions'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists own_rows on public.%I', t);
     execute format('create policy own_rows on public.%I for all to authenticated
@@ -261,6 +284,12 @@ begin
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;
   end loop;
+  -- The deletion logs stay out: a published table without a primary key can't
+  -- delete rows (their 60-day cleanup). The deleted row's own event wakes devices.
+  if exists (select 1 from pg_publication_tables
+             where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'deleted_books') then
+    alter publication supabase_realtime drop table public.deleted_books;
+  end if;
 end $$;
 
 -- ===== Storage ===============================================================

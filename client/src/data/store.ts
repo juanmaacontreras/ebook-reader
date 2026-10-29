@@ -3,7 +3,7 @@
 
 import { db, kv } from './db'
 import { audioBucket, local } from './files'
-import { emit, syncSoon } from './sync'
+import { emit, forgetBook, syncSoon } from './sync'
 import { demo, supabase } from './supabase'
 import { audioManager } from '../platform'
 import type { Book, BookStatus, Highlight, HighlightColor, Local, Narration, NarrationChapter, NarrationScope, Position, WorkerStatus } from './types'
@@ -38,6 +38,14 @@ export const books = {
     await db.put('books', { ...b, ...patch, updated_at: now(), _dirty: true })
     emit(['books'])
     syncSoon()
+  },
+  // "Sacar de la biblioteca": gone from this device now, from the cloud and the
+  // other devices on the next sync (sync.ts, pushDeletedBooks → deleted_books).
+  async remove(id: string): Promise<void> {
+    const pending = (await kv.get<string[]>('pendingBookDeletes')) ?? []
+    if (!pending.includes(id)) await kv.set('pendingBookDeletes', [...pending, id])
+    await forgetBook(id)
+    syncSoon(200)
   },
 }
 

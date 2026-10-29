@@ -9,9 +9,9 @@
 // shortly after a local change, and when Realtime reports a remote change.
 
 import { db, kv, type StoreName } from './db'
-import { library, local, paths } from './files'
+import { audioBucket, library, local, paths } from './files'
 import { demo, supabase, userId } from './supabase'
-import type { Book, Local, NarrationChapter } from './types'
+import type { Book, Highlight, Local, NarrationChapter, ReadingSession } from './types'
 
 type Table = 'books' | 'positions' | 'highlights' | 'narrations' | 'narration_chapters' | 'reading_sessions'
 
@@ -79,6 +79,10 @@ async function syncOnce(): Promise<void> {
   if (!uid || demo) return
   setState('syncing')
   await uploadPendingBooks(uid)
+  // Before push: a row of a book removed elsewhere would fail its foreign key
+  // (or bring the book back, if it's the book row itself).
+  await pullDeletedBooks()
+  await pushDeletedBooks(uid)
   await push()
   await pull()
 }
@@ -91,8 +95,10 @@ function strip<T extends object>(row: T, table: Table): Record<string, unknown> 
 }
 
 async function push(): Promise<void> {
+  const gone = new Set((await kv.get<string[]>('goneBooks')) ?? [])
   for (const spec of SPECS.filter(s => PUSHED.includes(s.table))) {
-    const rows = (await db.all<Local<{ updated_at: string }>>(spec.store)).filter(r => r._dirty && !(r as { _upload?: boolean })._upload)
+    let rows = (await db.all<Local<{ updated_at: string }>>(spec.store)).filter(r => r._dirty && !(r as { _upload?: boolean })._upload)
+    if (gone.size) rows = await dropGone(spec.table, rows as Row[], gone)
     if (!rows.length) continue
     const conflict = spec.table === 'positions' || spec.table === 'narrations' ? 'book_id' : 'id'
     const { error } = await supabase.from(spec.table).upsert(rows.map(r => strip(r, spec.table)), { onConflict: conflict })
@@ -106,8 +112,29 @@ async function push(): Promise<void> {
   }
 }
 
+type Row = Local<{ id?: string; book_id?: string | null; updated_at: string }>
+
+// Rows written for a removed book after this device forgot it (a reader still
+// open at that moment): sessions keep their time without the book, the rest goes.
+async function dropGone(table: Table, rows: Row[], gone: Set<string>): Promise<Row[]> {
+  const spec = SPECS.find(s => s.table === table)!
+  const out: Row[] = []
+  for (const r of rows) {
+    const book = table === 'books' ? r.id : r.book_id
+    if (!book || !gone.has(book)) out.push(r)
+    else if (table === 'reading_sessions') {
+      const kept = { ...r, book_id: null }
+      await db.put(spec.store, kept)
+      out.push(kept)
+    } else await db.del(spec.store, (table === 'positions' || table === 'narrations' ? r.book_id : r.id)!)
+  }
+  return out
+}
+
 async function pull(): Promise<void> {
   const changed = new Set<StoreName>()
+  // A pull racing a removal made here could bring the book back for a moment.
+  const gone = new Set((await kv.get<string[]>('goneBooks')) ?? [])
   for (const spec of SPECS) {
     const cursorKey = `cursor:${spec.table}`
     let cursor = (await kv.get<string>(cursorKey)) ?? '1970-01-01T00:00:00Z'
@@ -117,7 +144,10 @@ async function pull(): Promise<void> {
       if (error) throw error
       const rows = (data ?? []) as unknown as Record<string, unknown>[]
       if (!rows.length) break
-      for (const row of rows) if (await merge(spec, row)) changed.add(spec.store)
+      for (const row of rows) {
+        if (gone.has((spec.table === 'books' ? row.id : row.book_id) as string)) continue
+        if (await merge(spec, row)) changed.add(spec.store)
+      }
       cursor = rows[rows.length - 1].synced_at as string
       await kv.set(cursorKey, cursor)
       if (rows.length < 500) break
@@ -156,6 +186,47 @@ async function merge(spec: Spec, row: Record<string, unknown>): Promise<boolean>
   // Keep local-only fields (a chapter's downloaded timings, for instance).
   await db.put(spec.store, { ...(current ?? {}), ...row, _dirty: false })
   return true
+}
+
+// ---- Removed books ("Sacar de la biblioteca") ----------------------------------
+
+// Every local trace of a removed book goes. Reading sessions stay, without the
+// book (time read still counts in Resumen), as the server does (on delete set null).
+export async function forgetBook(id: string): Promise<void> {
+  const gone = (await kv.get<string[]>('goneBooks')) ?? []
+  if (!gone.includes(id)) await kv.set('goneBooks', [...gone, id])
+  const { deleteBookAudio } = await import('../audio/cache')
+  await deleteBookAudio(id)  // local files first: it walks the chapter rows
+  for (const c of await db.byIndex<NarrationChapter>('chapters', 'book_id', id)) await db.del('chapters', [c.book_id, c.voice, c.section])
+  for (const h of await db.byIndex<Highlight>('highlights', 'book_id', id)) await db.del('highlights', h.id)
+  for (const s of await db.byIndex<Local<ReadingSession>>('sessions', 'book_id', id)) await db.put('sessions', { ...s, book_id: null })
+  for (const store of ['narrations', 'positions', 'books'] as const) await db.del(store, id)
+  for (const kind of ['epub', 'cover', 'text']) await local.del(`${kind}:${id}`)
+  emit(['books', 'positions', 'highlights', 'narrations', 'chapters', 'sessions'])
+}
+
+// Removed on another device: the server keeps a log (a pull can't see a deleted row).
+async function pullDeletedBooks(): Promise<void> {
+  const key = 'cursor:deleted_books'
+  const since = (await kv.get<string>(key)) ?? '1970-01-01T00:00:00Z'
+  const { data, error } = await supabase.from('deleted_books').select('book_id,synced_at').gt('synced_at', since).order('synced_at').limit(1000)
+  if (error) throw error
+  if (!data?.length) return
+  for (const d of data) await forgetBook(d.book_id)
+  await kv.set(key, data[data.length - 1].synced_at)
+}
+
+// Removed here, maybe offline. The row first: its delete cascades on the server
+// (position, highlights, narration — which also stops the PC — and chapters) and
+// tells the other devices. Then the files; if that fails, the next sync retries.
+async function pushDeletedBooks(uid: string): Promise<void> {
+  for (const id of (await kv.get<string[]>('pendingBookDeletes')) ?? []) {
+    const { error } = await supabase.from('books').delete().eq('id', id)
+    if (error) throw error
+    await library.removeFolder(`${uid}/${id}`)
+    await audioBucket.removeFolder(`${uid}/${id}`)
+    await kv.set('pendingBookDeletes', ((await kv.get<string[]>('pendingBookDeletes')) ?? []).filter(x => x !== id))
+  }
 }
 
 // Books imported offline (or whose upload failed) carry _upload until their

@@ -7,7 +7,7 @@ import { userId } from '../data/supabase'
 import type { Book, BookStatus, Local, NarrationChapter } from '../data/types'
 import { prefs, setPrefs, type Prefs } from '../settings'
 import { t } from '../strings'
-import { openDialog, segmented, toast } from '../ui/dialog'
+import { confirmDialog, openDialog, segmented, toast } from '../ui/dialog'
 import { editBook } from './editBook'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
@@ -151,6 +151,7 @@ export function libraryScreen(root: HTMLElement, openBook: (id: string) => void)
         choice('note', t.editBook, null, () => editBook(b)),
         choice('download', t.downloadBook, null, () => void ensureEpub(b).then(render)),
         choice('trash', t.removeDownload, t.removeDownloadHint, () => void removeLocal(b).then(render), true),
+        choice('close', t.removeBook, t.removeBookHint, () => void removeBook(b), true),
       ].filter((x): x is HTMLElement => x !== null))
     })
   }
@@ -199,6 +200,10 @@ export async function ensureEpub(b: Book, onProgress?: (f: number) => void): Pro
   const blob = await remote(b).download(b.epub_path, onProgress)
   await local.put(`epub:${b.id}`, blob)
   return blob
+}
+
+async function removeBook(b: Book) {
+  if (await confirmDialog(b.title, t.removeBookConfirm, t.removeBookOk, true)) await books.remove(b.id)
 }
 
 async function removeLocal(b: Book) {
