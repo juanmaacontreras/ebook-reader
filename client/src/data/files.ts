@@ -15,6 +15,7 @@ export interface RemoteFiles {
   download(path: string, onProgress?: (fraction: number) => void): Promise<Blob>
   signedUrl(path: string, seconds?: number): Promise<string>
   remove(paths: string[]): Promise<void>
+  removeFolder(prefix: string): Promise<void>
 }
 
 function supabaseBucket(bucket: string): RemoteFiles {
@@ -38,6 +39,18 @@ function supabaseBucket(bucket: string): RemoteFiles {
       if (!paths.length) return
       const { error } = await api().remove(paths)
       if (error) throw error
+    },
+    // Everything under prefix, subfolders included (Storage lists one level at a
+    // time; a folder is an entry without id).
+    async removeFolder(prefix) {
+      const { data, error } = await api().list(prefix, { limit: 1000 })
+      if (error) throw error
+      const files: string[] = []
+      for (const e of data ?? []) {
+        if (e.id) files.push(`${prefix}/${e.name}`)
+        else await this.removeFolder(`${prefix}/${e.name}`)
+      }
+      await this.remove(files)
     },
   }
 }

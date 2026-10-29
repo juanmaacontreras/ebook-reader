@@ -171,8 +171,8 @@ audio, not on every pull. Pauses are the worker's: 0.32 s between sentences,
   `voices/<name>.wav` becomes a voice (the app lists what the worker reports in
   `worker_status.voices`).
 
-**Storage budget (free tier: 1 GB files, 5 GB egress/month).** EPUBs are never
-deleted. Audio of a book is deleted from Storage when it's marked finished
+**Storage budget (free tier: 1 GB files, 5 GB egress/month).** EPUBs are
+deleted only when the user removes the book ("Sacar de la biblioteca"). Audio of a book is deleted from Storage when it's marked finished
 (app does it immediately; the worker sweeps too) and can be regenerated. The
 worker refuses to generate past `MAX_AUDIO_MB` (700 MB default). Devices
 download each chapter once and play locally — never stream. Keep-alive: the
@@ -383,6 +383,19 @@ screens and bottom sheets on phones. The reading surface has its own themes
   Dotfiles side done the same day: `custom/atril` Waybar module (runs
   `tts-worker/waybar.py` by path, so keep its location and `--stop` flag
   stable), hypridle listener removed, unit enabled again with `./run.sh --service`.
+
+- 2026-10-29: **"Sacar de la biblioteca"** (book menu, every device, with a
+  confirmation). Removes the book everywhere: the row is deleted (cascade:
+  position, highlights, narration, chapters; reading sessions keep their time
+  with book_id null, so Resumen totals stay), then its folders in both buckets.
+  Other devices learn it from `deleted_books` (trigger log, like
+  `deleted_chapters`), applied *before* push so a stale row can't fail its
+  foreign key or bring the book back. Removed ids stay in local kv `goneBooks`
+  (pull and push skip them); removals made offline wait in
+  `pendingBookDeletes`. An open reader of a removed book goes back to the
+  library. Worker: an upload whose chapter row fails (book removed mid-chapter)
+  deletes its file; `sweep_removed` clears `work/` of removed books. A removed
+  book's sessions drop out of the per-language speed (no language without the book).
 
 ## Current state (2026-10-21)
 

@@ -325,6 +325,21 @@ class Worker:
                 if row["state"] != "purged":
                     self.db.update("narrations", {"book_id": b["id"]}, {"state": "purged", "current_section": None})
 
+    def sweep_removed(self) -> None:
+        # Books removed from the library ("Sacar de la biblioteca"): the app deletes
+        # their rows and cloud files; only this PC's work files are left.
+        leftovers = [p for d in ("chunks", "manifests") for p in (self.work / d).glob("*")]
+        if not leftovers:
+            return
+        alive = {b["id"] for b in self.db.select("books", {"select": "id"})}
+        for p in leftovers:
+            if p.stem in alive:
+                continue
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                p.unlink(missing_ok=True)
+
     # ---- jobs --------------------------------------------------------------------------
     def next_job(self):
         rows = self.db.select("narrations", {"select": "*", "status": "eq.active", "order": "requested_at.asc"})
@@ -423,11 +438,17 @@ class Worker:
         path = f"{book['user_id']}/{book['id']}/{slug(voice)}/{section['i']}.opus"
         self.db.upload("audio", path, data, "audio/ogg")
         duration = audio.wav.size / audio.sample_rate
-        self.db.upsert("narration_chapters", {
-            "book_id": book["id"], "user_id": book["user_id"], "voice": voice, "section": section["i"],
-            "audio_path": path, "duration": round(duration, 3), "bytes": len(data),
-            "timings": [{"i": tm.index, "cfi": tm.cfi, "s": tm.start, "e": tm.end} for tm in audio.timings],
-        }, "book_id,voice,section")
+        try:
+            self.db.upsert("narration_chapters", {
+                "book_id": book["id"], "user_id": book["user_id"], "voice": voice, "section": section["i"],
+                "audio_path": path, "duration": round(duration, 3), "bytes": len(data),
+                "timings": [{"i": tm.index, "cfi": tm.cfi, "s": tm.start, "e": tm.end} for tm in audio.timings],
+            }, "book_id,voice,section")
+        except Exception:
+            # Most likely the book was removed from the library meanwhile: don't
+            # leave its audio in the cloud with no row pointing at it.
+            self.db.remove("audio", [path])
+            raise
         out.unlink(missing_ok=True)
         shutil.rmtree(self.work / "chunks" / book["id"] / slug(voice) / str(section["i"]), ignore_errors=True)
         for w in audio.warnings:
@@ -451,6 +472,7 @@ class Worker:
                     self.handle_stop_request()
                 self.heartbeat()
                 self.sweep_finished()
+                self.sweep_removed()
                 job = self.next_job()
                 if job:
                     book, n, *_ = job
