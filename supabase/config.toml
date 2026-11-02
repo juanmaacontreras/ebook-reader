@@ -1,0 +1,8 @@
+# Only what the Supabase CLI needs to deploy the Edge Functions:
+#   SUPABASE_ACCESS_TOKEN=... npx supabase functions deploy kobo --project-ref uxavtsscsgtcjxfmfwrp --use-api
+project_id = "uxavtsscsgtcjxfmfwrp"
+
+# A Kobo sends no Supabase token: its credential is the token in the URL path
+# (supabase/functions/kobo/index.ts).
+[functions.kobo]
+verify_jwt = false

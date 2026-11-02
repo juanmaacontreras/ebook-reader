@@ -28,8 +28,12 @@ const SPECS: Spec[] = [
 ]
 const PUSHED: Table[] = ['books', 'positions', 'highlights', 'narrations', 'reading_sessions']
 const LOCAL_FIELDS = ['_dirty', '_upload', 'synced_at', 'timings', 'cached']
-// Columns the worker owns: never pushed from a device.
-const WORKER_FIELDS: Partial<Record<Table, string[]>> = { narrations: ['state', 'current_section', 'error', 'stopped_at'] }
+// Columns a device never pushes: the worker's, and kepub_path (written by a
+// direct update in kepubs.ts; a stale local copy of the row must not clear it).
+const NOT_PUSHED: Partial<Record<Table, string[]>> = {
+  narrations: ['state', 'current_section', 'error', 'stopped_at'],
+  books: ['kepub_path'],
+}
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error'
 
@@ -85,11 +89,13 @@ async function syncOnce(): Promise<void> {
   await pushDeletedBooks(uid)
   await push()
   await pull()
+  // Background, after the sync: KEPUBs for the Kobo that are still missing.
+  void import('./kepubs').then(m => m.buildPendingKepubs(uid))
 }
 
 function strip<T extends object>(row: T, table: Table): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  const skip = [...LOCAL_FIELDS, ...(WORKER_FIELDS[table] ?? [])]
+  const skip = [...LOCAL_FIELDS, ...(NOT_PUSHED[table] ?? [])]
   for (const [k, v] of Object.entries(row)) if (!skip.includes(k)) out[k] = v
   return out
 }
@@ -176,8 +182,8 @@ async function merge(spec: Spec, row: Record<string, unknown>): Promise<boolean>
   const current = await db.get<Local<Record<string, unknown>>>(spec.store, key)
   if (current && current.synced_at === row.synced_at) return false
   if (spec.lww && current?._dirty && String(current.updated_at) >= String(row.updated_at)) {
-    // Ours is newer and still to be pushed; take only the worker's columns.
-    const worker = WORKER_FIELDS[spec.table] ?? []
+    // Ours is newer and still to be pushed; take only the columns we never push.
+    const worker = NOT_PUSHED[spec.table] ?? []
     if (!worker.length) return false
     const patch = Object.fromEntries(worker.map(k => [k, row[k]]))
     await db.put(spec.store, { ...current, ...patch })

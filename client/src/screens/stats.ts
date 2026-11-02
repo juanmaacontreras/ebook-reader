@@ -14,7 +14,7 @@ import { icon } from '../ui/icons'
 const PERIODS: [Period, string][] = [['week', t.periodWeek], ['month', t.periodMonth], ['year', t.periodYear]]
 const NOW_LABEL: Record<Period, string> = { week: t.thisWeek, month: t.thisMonth, year: t.thisYear }
 const VS_LABEL: Record<Period, string> = { week: t.vsWeek, month: t.vsMonth, year: t.vsYear }
-const DEVICE_LABEL: Record<DeviceKind, string> = { phone: t.devicePhone, tablet: t.deviceTablet, pc: t.devicePc }
+const DEVICE_LABEL: Record<DeviceKind, string> = { phone: t.devicePhone, tablet: t.deviceTablet, pc: t.devicePc, ereader: t.deviceEreader }
 const rateLabel = (r: number) => `${String(r).replace('.', ',')}×`
 
 export function statsScreen(root: HTMLElement, openBook: (id: string) => void, goBack: () => void): () => void {

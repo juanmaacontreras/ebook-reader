@@ -96,4 +96,7 @@ export const paths = {
   epub: (uid: string, book: string) => `${uid}/${book}/book.epub`,
   cover: (uid: string, book: string) => `${uid}/${book}/cover.jpg`,
   text: (uid: string, book: string) => `${uid}/${book}/text.json.gz`,
+  // For a Kobo (book/kepub.ts): the KEPUB and which archive file is which section.
+  kepub: (uid: string, book: string) => `${uid}/${book}/book.kepub.epub`,
+  kepubMap: (uid: string, book: string) => `${uid}/${book}/kepub.json`,
 }
