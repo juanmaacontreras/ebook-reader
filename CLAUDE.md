@@ -419,6 +419,16 @@ screens and bottom sheets on phones. The reading surface has its own themes
   `reading_services_host`, so a Supabase function URL can't take them; options:
   a free Cloudflare Worker at its own root, or reading `KoboReader.sqlite`); how
   often the stock firmware syncs by itself (read `kobo_log`).
+  **Requirement set by the user the same day:** tapping "Sincronizar" by hand is
+  fine for library changes (a new or removed book), but switching devices must
+  carry the position with no tap at all ("si tengo que tocar sincronizar cada vez
+  que quiero cambiar el dispositivo, ahí sí ya es un problema"). To measure on
+  the device, both ways, with `kobo_log`: Kobo → Atril (does it PUT the state by
+  itself on closing a book / sleeping?) and Atril → Kobo (does it sync by itself
+  on wake / opening a book?). Its "Automatic sync" setting was on "Night"; the
+  options it offers are not known yet. If either way needs a tap: plan B, an
+  on-device add-on that syncs on wake and on closing a book (explain what it is
+  and how to remove it before installing; never write KoboReader.sqlite).
 
 ## Current state (2026-10-21)
 
