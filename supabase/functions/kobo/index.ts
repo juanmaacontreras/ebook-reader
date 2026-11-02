@@ -395,7 +395,9 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     const book = await bookOf(dev, x[1])
     if (!book) return toKobo(path, url)
     const [known, pos] = [(await koboBooks(dev, [book.id])).get(book.id), (await positionsOf(dev, [book.id])).get(book.id)]
-    return { res: json([readingState(book, pos ?? null, await kepubMap(dev.user_id, book.id), { state: known?.state ?? null, device: dev.tag })]) }
+    const state = readingState(book, pos ?? null, await kepubMap(dev.user_id, book.id), { state: known?.state ?? null, device: dev.tag })
+    const loc = state.CurrentBookmark?.Location
+    return { res: json([state]), note: loc ? `sent ${loc.Value} in ${loc.Source} (from ${pos?.device ?? '?'})` : 'sent no place' }
   }
   if (path.startsWith('v1/library/tags')) {
     // Collections stay on the device; acknowledge so it doesn't retry.
