@@ -59,11 +59,17 @@ def http(method: str, url: str, body=None, headers=None, raw=False):
 
 
 def sql(query: str):
-    status, _, out = http("POST", f"https://api.supabase.com/v1/projects/{REF}/database/query", {"query": query},
-                          {"Authorization": f"Bearer {PAT}", "User-Agent": "atril-e2e"})
-    if status >= 300:
-        raise RuntimeError(f"sql {status}: {out}")
-    return out
+    for attempt in range(3):  # the Management API times out now and then
+        try:
+            status, _, out = http("POST", f"https://api.supabase.com/v1/projects/{REF}/database/query", {"query": query},
+                                  {"Authorization": f"Bearer {PAT}", "User-Agent": "atril-e2e"})
+        except TimeoutError:
+            if attempt == 2:
+                raise
+            continue
+        if status >= 300:
+            raise RuntimeError(f"sql {status}: {out}")
+        return out
 
 
 def lit(s: str) -> str:
@@ -154,11 +160,19 @@ def main() -> None:
         sec = next(s for s in manifest["sections"] if s["i"] == f1["i"])
         check(chapter.count('class="koboSpan"') >= len(sec["sentences"]) and 'id="kobo.3.1"' in chapter, f"{f1['p']}: spans for its {len(sec['sentences'])} sentences")
 
+        # The sample book has no cover: one is put in its place, as the app would.
         status, h, img = http("GET", f"{base}/{bid}/300/400/false/image.jpg", headers=kobo, raw=True)
-        check(status == 200 and img[:2] == b"\xff\xd8", "cover")
+        check(status == 404, "a book without a cover: 404 (not sent to Kobo's image server)")
+        jpeg = b"\xff\xd8\xff\xe0" + b"\0" * 60 + b"\xff\xd9"
+        http("POST", f"{URL}/storage/v1/object/library/{uid}/{bid}/cover.jpg", jpeg, {**user, "Content-Type": "image/jpeg"})
+        # Cloudflare (in front of Supabase) caches *.jpg answers, the 404 too: another size.
+        status, h, img = http("GET", f"{base}/{bid}/301/401/false/image.jpg", headers=kobo, raw=True)
+        check(status == 200 and img == jpeg, "cover")
 
         print("kobo: reading on the device")
-        now = datetime.now(timezone.utc).replace(microsecond=0)
+        # Reports dated after the import (an older one would rightly lose to it).
+        imported = sql(f"select updated_at from books where id = {lit(bid)}")[0]["updated_at"]
+        now = datetime.fromisoformat(imported).replace(microsecond=0) + timedelta(minutes=11)
         ts = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         def report(value: str, minutes: int, status_: str, at: datetime):
@@ -198,7 +212,10 @@ def main() -> None:
                               {**user, "Prefer": "resolution=merge-duplicates"})
         check(status < 300, "phone pushes a newer place")
         status, h, items = http("GET", f"{base}/v1/library/sync", headers={**kobo, "x-kobo-synctoken": cursor})
-        states = [i["ChangedReadingState"]["ReadingState"] for i in items if "ChangedReadingState" in i]
+        # As a state alone, or inside the book's entry when the book row changed too
+        # (here: its status went to "reading" from the Kobo's report).
+        states = [i["ChangedReadingState"]["ReadingState"] for i in items if "ChangedReadingState" in i] \
+            + [i["ChangedEntitlement"]["ReadingState"] for i in items if "ChangedEntitlement" in i]
         fl = next(f for f in kmap["files"] if f["i"] == s2["i"])
         check(len(states) == 1 and states[0]["CurrentBookmark"]["Location"] == {"Value": "kobo.5.1", "Type": "KoboSpan", "Source": fl["p"]},
               "the Kobo's next sync points it to the phone's sentence (kobo.5.1)")

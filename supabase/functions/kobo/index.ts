@@ -367,7 +367,10 @@ function toKobo(path: string, url: URL): { res: Response; note: string } {
 async function route(req: Request, url: URL, dev: Device, path: string, base: string): Promise<Routed> {
   const m = req.method
   let x: RegExpExecArray | null
-  if (path === 'v1/initialization') return { res: await initialization(req, base) }
+  if (path === 'v1/initialization') {
+    const res = await initialization(req, base)
+    return { res, note: `resources: ${res.headers.get('x-atril-resources')}` }
+  }
   if (path === 'v1/library/sync') {
     const res = await librarySync(req, dev, base)
     return { res, note: `${(await res.clone().json()).length} items${res.headers.get('x-kobo-sync') ? ', continue' : ''}` }
@@ -403,9 +406,9 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
   }
   if ((x = /^download\/([^/]+)$/.exec(path))) return { res: await download(dev, x[1]) }
   if ((x = /^([0-9a-f-]{36})\/.*image\.jpg$/i.exec(path))) {
-    const res = await cover(dev, x[1])
     // A cover of a Kobo store book: Kobo's image server.
-    return res.ok ? { res } : { res: Response.redirect(`https://cdn.kobo.com/book-images/${path}`, 307), note: 'store cover' }
+    if (!(await bookOf(dev, x[1]))) return { res: Response.redirect(`https://cdn.kobo.com/book-images/${path}`, 307), note: 'store cover' }
+    return { res: await cover(dev, x[1]) }
   }
   if (path === 'v1/auth/device' || path === 'v1/auth/refresh') {
     // Only reached with the fallback resources (Kobo's sign-in unreachable).
