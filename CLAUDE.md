@@ -50,10 +50,12 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     sessions.ts           reading sessions (time + words read/listened per device) for stats
     stats.ts              numbers for the Resumen screen, computed from the synced sessions
     files.ts              remote file provider (Supabase Storage; Google Drive later) + local blobs
+    kepubs.ts             builds missing KEPUBs in the background after a sync
   src/book/
     sentences.ts          sentence segmentation — shared by import (manifest) and reader (highlight/tap)
     manifest.ts           builds the per-book sentence manifest (CFI + text per sentence)
     importer.ts           EPUB import: hash, metadata, cover, manifest, local save → sync uploads
+    kepub.ts              the book as a Kobo reads it: manifest sentences wrapped in koboSpans (see "Kobo")
     bookStyles.ts         CSS injected into the book (light/sepia/dark reading themes, fonts, spacing)
   src/audio/
     controller.ts         narration of the open book: chapters, downloads, playlist, time→sentence
@@ -82,7 +84,9 @@ tts-worker/               narration worker for the PC (Python 3.12, uv)
   compare_voices.py       renders the same passages with every candidate voice
   run.sh / run.bat        one-step install + run (Linux / Windows), optional autostart
 supabase/schema.sql       full schema, idempotent (tables, RLS, triggers, buckets, Realtime)
+supabase/functions/kobo/  Edge Function: Atril as a Kobo's store (index.ts I/O, logic.ts pure + logic_test.ts)
 tools/screenshots.py      renders the real app in headless Chromium (design proposals)
+tools/kobo_e2e.py         Kobo sync end to end against the real backend (temporary account, cleaned up)
 .github/workflows/        build.yml (test → APK + AppImage + NSIS → Release on main), keepalive.yml
 ```
 
@@ -397,6 +401,25 @@ screens and bottom sheets on phones. The reading surface has its own themes
   deletes its file; `sweep_removed` clears `work/` of removed books. A removed
   book's sessions drop out of the per-language speed (no language without the book).
 
+- 2026-11-02: **Kobo sync built and deployed** (option 1 of 2026-10-27; user: "lo
+  dejo todo a tu criterio"). A stock Kobo Clara BW (N365, firmware 4.45) syncs with
+  Atril as if Atril were Kobo's store; see "Kobo" under Architecture. The phone,
+  tablet and desktop apps look the same: the Kobo shows up only as a position
+  ("Ir"), a status, and "Kobo" in Resumen's devices. Verified end to end against
+  the real backend (`tools/kobo_e2e.py`, all checks pass). **Not yet confirmed on
+  the device itself.** Setup done the same day: the Kobo's `api_endpoint` points
+  at the function (original conf and the token in `~/.config/atril/kobo/`, outside
+  the repo; a Kobo reset or Kobo-account sign-in may restore the stock line:
+  write it again from there). A cloud session had built a first version the same
+  day (branch `ccr-f98e385e-g1tw2k`, never merged: plain EPUB, position by
+  percent); this one replaces it. Its tables `kobo_states` / `kobo_events` and a
+  `kobo_devices` row named "Kobo Clara BW" created 17:56 UTC (token lost) are
+  leftovers, to drop once the user agrees. Still open: highlights (need the
+  "reading services" at a host root: the device strips any path from
+  `reading_services_host`, so a Supabase function URL can't take them; options:
+  a free Cloudflare Worker at its own root, or reading `KoboReader.sqlite`); how
+  often the stock firmware syncs by itself (read `kobo_log`).
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
@@ -477,6 +500,46 @@ the real backend, temporarily add a test email to `allowed_emails`, then delete
 that user (`delete from auth.users where email=...`), its Storage files and the
 allow-list entry.
 
+## Kobo
+
+- **Protocol**: Kobo's store API as Calibre-Web reverse-engineered it, served by
+  `supabase/functions/kobo` at `https://<ref>.supabase.co/functions/v1/kobo/<token>`
+  (the Kobo's `[OneStoreServices] api_endpoint`). `v1/initialization` proxies
+  Kobo's own resource list and overrides only the library, reading state,
+  collections and covers, so sign-in, dictionaries, firmware and highlights stay
+  Kobo's. Books of Kobo's store keep going to Kobo (307).
+- **KEPUB = sentence identity on the Kobo.** A synced book is always opened by the
+  KEPUB renderer, which can only report/restore a place at a `koboSpan`; a plain
+  EPUB reports every place as the chapter start. `book/kepub.ts` wraps manifest
+  sentence k in `kobo.<k+1>.<piece>` (pieces = text nodes split by inline markup,
+  footnote refs left out) and `kepub.json` maps archive file → spine index. So the
+  Kobo's `{Source, Value: kobo.N.M}` is sentence N-1, and Atril's (section,
+  sentence) goes back as `kobo.<sentence+1>.1`. Built by any device that has the
+  EPUB, the desktop also downloads missing ones (`data/kepubs.ts`), refused if
+  segmentation differs from the manifest. `books.kepub_path` is set by a direct
+  update that leaves `updated_at` alone and is in `NOT_PUSHED` (sync.ts): a stale
+  local row must never clear it. Only books with a KEPUB reach the Kobo. Changing
+  `kepub.ts` output: bump `KEPUB_VERSION`, clear `kepub_path`.
+- **Sync rules**: cursor = our own token over `books.synced_at`,
+  `positions.synced_at`, `deleted_books.synced_at`. A place the device reports is
+  written to `positions` (device `kobo:<id8>`, `updated_at` = the device's time, so
+  LWW works with offline reading) only when it moved (it repeats its place on
+  every open/close). Status: only a change made on the device counts; "Reading"
+  never undoes "terminado". `SpentReadingMinutes` deltas become `reading_sessions`
+  (`device_kind` 'ereader', words between the two places, never in reading
+  speed). Removing a book on the Kobo only hides it there (`kobo_books.removed`).
+- **Security**: deployed with JWT verification off (the device can't send one;
+  the user authorized it 2026-11-02). The token is the credential, only its
+  SHA-256 stored in `kobo_devices`; the function is the one place using the
+  secret key, every query scoped to the token's user. New Kobo or lost token:
+  insert a new `kobo_devices` row with the hash and write the URL into the conf.
+- **Debugging a real device**: `kobo_log` (every request, no token; reading-state
+  bodies as sent; two weeks). Cloudflare in front of Supabase caches `*.jpg`
+  answers for minutes, a 404 too.
+- **Deploy**: `SUPABASE_ACCESS_TOKEN=<short-lived PAT> npx supabase functions
+  deploy kobo --project-ref uxavtsscsgtcjxfmfwrp --use-api --no-verify-jwt`
+  (CLI in the scratchpad). CI runs `deno check` + `deno test` on it.
+
 ## Phase 2 (designed for, not built)
 
 Tap a word → offline dictionary + vocabulary list (the reader already maps
@@ -486,5 +549,5 @@ chapter, note, CFI); sleep timer (end of chapter = the controller's `track`
 event; X minutes = timer + pause); reading stats (positions already log
 device + time; add a sessions table); bookmarks (same shape as highlights with
 a kind); full-text search (foliate-js `search.js` via `view.search()`); Kobo
-highlight import (KoboReader.sqlite `Bookmark` table → match book by title,
-map their spans to CFIs). Out of scope: store, social, non-EPUB formats.
+highlights (their location is our koboSpan ids, so they map to sentences
+directly; see the 2026-11-02 decision for how to receive them). Out of scope: store, social, non-EPUB formats.
