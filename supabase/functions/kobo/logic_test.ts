@@ -73,5 +73,6 @@ Deno.test('sync token round trip; Kobo\'s own token starts over', () => {
   const c = { books: '2026-11-02T10:00:00.123456+00:00', positions: '1970-01-01T00:00:00Z', deleted: 'x' }
   assertEquals(readCursor(writeCursor(c)), c)
   assertEquals(readCursor('eyJhbGciOi.abc.def'), null)
+  assertEquals(readCursor(btoa(JSON.stringify({ atril: 1, b: '2026-11-02T00:00:00Z' }))), null)  // version 1 starts over
   assertEquals(readCursor(null), null)
 })
