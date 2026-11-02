@@ -114,11 +114,19 @@ async function bookOf(dev: Device, id: string): Promise<BookRow | null> {
   return rows[0] ?? null
 }
 
-type KoboBook = { book_id: string; removed: boolean; state: KoboState | null; state_at: string | null }
+type KoboBook = { book_id: string; removed: boolean; state: KoboState | null; state_at: string | null; confirmed_at: string | null }
+
+// The device showed it has the book: later syncs send it as changed, not new.
+async function confirm(dev: Device, book: string): Promise<void> {
+  await rest('kobo_books?on_conflict=device_id,book_id', {
+    method: 'POST', prefer: 'resolution=merge-duplicates',
+    body: JSON.stringify({ device_id: dev.id, book_id: book, confirmed_at: new Date().toISOString() }),
+  })
+}
 
 async function koboBooks(dev: Device, ids: string[]): Promise<Map<string, KoboBook>> {
   if (!ids.length) return new Map()
-  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
+  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
   return new Map(rows.map(r => [r.book_id, r]))
 }
 
@@ -203,7 +211,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
     if (known?.removed) continue
     const map = await kepubMap(dev.user_id, b.id)
     const state = readingState(b, pos.get(b.id) ?? null, map, { state: known?.state ?? null, device: dev.tag })
-    out.push({ [known ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null), ReadingState: state } })
+    out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null), ReadingState: state } })
     inEntitlements.add(b.id)
     if (!known) sent.push(b.id)
   }
@@ -332,7 +340,7 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
 
   await rest('kobo_books?on_conflict=device_id,book_id', {
     method: 'POST', prefer: 'resolution=merge-duplicates',
-    body: JSON.stringify({ device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString() }),
+    body: JSON.stringify({ device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString(), confirmed_at: now.toISOString() }),
   })
   return { res: taken(id), note: notes.join('; ') || 'no change', body: sent }
 }
@@ -344,6 +352,7 @@ async function download(dev: Device, id: string): Promise<Response> {
   if (!book?.kepub_path) return new Response('not found', { status: 404 })
   const res = await storage(book.kepub_path)
   if (!res.ok || !res.body) return new Response('not found', { status: 404 })
+  await confirm(dev, id)
   const h = new Headers({ 'Content-Type': 'application/epub+zip', 'Content-Disposition': 'attachment; filename="book.kepub.epub"' })
   const len = res.headers.get('content-length')
   if (len) h.set('Content-Length', len)

@@ -220,7 +220,9 @@ export function readCursor(header: string | null): SyncCursor | null {
   if (!header) return null
   try {
     const raw = JSON.parse(atob(header))
-    if (raw?.atril !== 1) return null
+    // 2: since books count as on the device only once it confirmed them (any
+    // older token starts over, so books lost to version 1 are sent again).
+    if (raw?.atril !== 2) return null
     return { books: raw.b ?? EPOCH, positions: raw.p ?? EPOCH, deleted: raw.d ?? EPOCH }
   } catch {
     return null  // Kobo's own token, from before this device synced with Atril
@@ -228,7 +230,7 @@ export function readCursor(header: string | null): SyncCursor | null {
 }
 
 export function writeCursor(c: SyncCursor): string {
-  return btoa(JSON.stringify({ atril: 1, b: c.books, p: c.positions, d: c.deleted }))
+  return btoa(JSON.stringify({ atril: 2, b: c.books, p: c.positions, d: c.deleted }))
 }
 
 export const START: SyncCursor = { books: EPOCH, positions: EPOCH, deleted: EPOCH }

@@ -300,6 +300,11 @@ create table if not exists public.kobo_books (
   state_at timestamptz,
   primary key (device_id, book_id)
 );
+-- When the device showed it has the book (downloaded it, or reported on it).
+-- Until then the book goes as new on every sync that includes it: a device
+-- ignores a "changed" entry for a book it never stored, and an answer can be
+-- lost (it may restart a sync after refreshing its resources).
+alter table public.kobo_books add column if not exists confirmed_at timestamptz;
 
 -- Every request a Kobo makes (never the token), kept two weeks: when and how
 -- often it syncs is only learnt from this. body: what it reported of a book
