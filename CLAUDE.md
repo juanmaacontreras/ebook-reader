@@ -406,8 +406,8 @@ screens and bottom sheets on phones. The reading surface has its own themes
   Atril as if Atril were Kobo's store; see "Kobo" under Architecture. The phone,
   tablet and desktop apps look the same: the Kobo shows up only as a position
   ("Ir"), a status, and "Kobo" in Resumen's devices. Verified end to end against
-  the real backend (`tools/kobo_e2e.py`, all checks pass). **Not yet confirmed on
-  the device itself.** Setup done the same day: the Kobo's `api_endpoint` points
+  the real backend (`tools/kobo_e2e.py`, all checks pass). **Confirmed on the
+  device the same evening** (see "Kobo", "Seen on the real device"). Setup done the same day: the Kobo's `api_endpoint` points
   at the function (original conf and the token in `~/.config/atril/kobo/`, outside
   the repo; a Kobo reset or Kobo-account sign-in may restore the stock line:
   write it again from there). A cloud session had built a first version the same
@@ -429,6 +429,8 @@ screens and bottom sheets on phones. The reading surface has its own themes
   options it offers are not known yet. If either way needs a tap: plan B, an
   on-device add-on that syncs on wake and on closing a book (explain what it is
   and how to remove it before installing; never write KoboReader.sqlite).
+  **Result the same evening: met with no add-on** — the Kobo asks for a book's
+  state each time it is opened and reports its place while reading (see "Kobo").
 
 ## Current state (2026-10-21)
 
@@ -543,8 +545,23 @@ allow-list entry.
   SHA-256 stored in `kobo_devices`; the function is the one place using the
   secret key, every query scoped to the token's user. New Kobo or lost token:
   insert a new `kobo_devices` row with the hash and write the URL into the conf.
+- **Seen on the real device (2026-11-02, firmware 4.46.23852)**: a library sync
+  brings new books and the device downloads them (and covers) by itself right
+  away. Opening a book makes it `GET .../state`; if Atril's place is newer it
+  shows its own "looks like you've been reading on another device" dialog and
+  jumps to that exact span (PC → Kobo checked at sentence level: kobo.67.1 sent,
+  that page shown). While reading it `PUT`s its place every page or so (Kobo →
+  Atril within seconds), plus on closing. So switching devices needs no tap;
+  only library changes (new/removed books) wait for a sync (manual, or its
+  "Automatic sync" schedule). A device may lose a sync's answer (it refreshed its
+  resources and synced again); books therefore go as *new* until the device
+  confirms them (download or a state report, `kobo_books.confirmed_at`): it
+  ignores a *changed* entry for a book it never stored. Store sections on its
+  home screen (deals, featured) come here too and get `{}`: they show empty.
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
-  bodies as sent; two weeks). Cloudflare in front of Supabase caches `*.jpg`
+  bodies as sent, and the place sent back on `GET state`; two weeks). Never call
+  the function with the real device's token for checks: a download counts as the
+  device confirming the book. Cloudflare in front of Supabase caches `*.jpg`
   answers for minutes, a 404 too.
 - **Deploy**: `SUPABASE_ACCESS_TOKEN=<short-lived PAT> npx supabase functions
   deploy kobo --project-ref uxavtsscsgtcjxfmfwrp --use-api --no-verify-jwt`
