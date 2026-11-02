@@ -1,0 +1,234 @@
+// Pure parts of the Kobo sync (no I/O), tested by logic_test.ts.
+//
+// Positions. The KEPUB (client/src/book/kepub.ts) wraps manifest sentence k of
+// a section in spans kobo.<k+1>.<piece>, and kepub.json says which archive file
+// is which section. So a Kobo place {Source: file, Value: "kobo.N.M"} is
+// sentence N-1 of that section, and Atril's (section, sentence) goes to the
+// Kobo as kobo.<sentence+1>.1 in that section's file.
+
+export interface KepubFile { p: string; i: number; n: number }
+export interface KepubMap { v: number; files: KepubFile[] }
+export interface ManifestSentence { c: string; t: string }
+export interface Manifest { v: number; lang: string; sections: { i: number; label: string; sentences: ManifestSentence[] }[] }
+
+export interface KoboLocation { Value?: string; Type?: string; Source?: string }
+// deno-lint-ignore no-explicit-any
+export type KoboState = Record<string, any>
+
+// The archive file a Kobo names: as stored, or relative to some folder of it
+// ("Text/ch1.xhtml" for "OEBPS/Text/ch1.xhtml"), maybe URL-encoded.
+export function fileFor(map: KepubMap, source: string | undefined): KepubFile | null {
+  if (!source) return null
+  let s = source.split('#')[0]
+  try { s = decodeURIComponent(s) } catch { /* as is */ }
+  s = s.replace(/^\/+/, '')
+  return map.files.find(f => f.p === s)
+    ?? map.files.find(f => f.p.endsWith('/' + s) || s.endsWith('/' + f.p))
+    ?? null
+}
+
+// Kobo place → (section, sentence). null when it isn't one of our spans.
+export function placeFromKobo(map: KepubMap, loc: KoboLocation | undefined): { section: number; sentence: number } | null {
+  if (!loc || loc.Type !== 'KoboSpan') return null
+  const file = fileFor(map, loc.Source)
+  const m = /^kobo\.(\d+)\.\d+$/.exec(loc.Value ?? '')
+  if (!file || !m || !file.n) return null
+  return { section: file.i, sentence: Math.min(Math.max(Number(m[1]) - 1, 0), file.n - 1) }
+}
+
+// (section, sentence) → Kobo place, with how far into the chapter it is (0..100).
+export function placeForKobo(map: KepubMap, section: number | null, sentence: number | null): { location: Required<KoboLocation>; chapterPercent: number } | null {
+  if (section == null) return null
+  const file = map.files.find(f => f.i === section)
+  if (!file || !file.n) return null
+  const k = Math.min(Math.max(sentence ?? 0, 0), file.n - 1)
+  return {
+    location: { Value: `kobo.${k + 1}.1`, Type: 'KoboSpan', Source: file.p },
+    chapterPercent: Math.round((k / file.n) * 100),
+  }
+}
+
+function words(text: string): number {
+  return text.split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length
+}
+
+// Words read going forward from one place to another (0 going back).
+export function wordsBetween(manifest: Manifest, from: { section: number; sentence: number }, to: { section: number; sentence: number }): number {
+  let total = 0
+  for (const s of manifest.sections) {
+    if (s.i < from.section || s.i > to.section) continue
+    const a = s.i === from.section ? from.sentence : 0
+    const b = s.i === to.section ? to.sentence : s.sentences.length
+    for (let k = a; k < b; k++) total += words(s.sentences[k]?.t ?? '')
+  }
+  return total
+}
+
+// Kobo timestamps: seconds, "Z" (the format the device itself writes).
+export function koboTime(iso: string | Date): string {
+  return new Date(iso).toISOString().replace(/\.\d+Z$/, 'Z')
+}
+
+// A time the device wrote ("2026-11-02T20:14:18Z", maybe with 7 fraction
+// digits), never later than now. null when unreadable.
+export function deviceTime(s: unknown, now = new Date()): Date | null {
+  if (typeof s !== 'string') return null
+  const d = new Date(s.replace(/(\.\d{3})\d+/, '$1'))
+  if (isNaN(d.getTime())) return null
+  return d > now ? now : d
+}
+
+// The same place as the stored state: the device reports its place every time
+// a book is opened or closed, moved or not.
+export function samePlace(a: KoboState | null | undefined, b: KoboState): boolean {
+  if (!a) return false
+  const loc = (x: KoboState) => {
+    const l = x?.CurrentBookmark?.Location
+    return l ? `${l.Source}|${l.Value}|${l.Type}` : ''
+  }
+  return loc(a) === loc(b)
+}
+
+export type BookStatus = 'to_read' | 'reading' | 'finished'
+
+export function koboStatus(status: BookStatus): 'ReadyToRead' | 'Reading' | 'Finished' {
+  return status === 'finished' ? 'Finished' : status === 'reading' ? 'Reading' : 'ReadyToRead'
+}
+
+// What Atril should do with a status the device sent. Only a change made on
+// the device counts (the device repeats its status on every report), and
+// "Reading" never undoes a "finished" decided elsewhere.
+export function statusChange(previous: string | undefined, sent: string | undefined, current: BookStatus): BookStatus | null {
+  if (!sent || sent === previous) return null
+  if (sent === 'Finished') return current === 'finished' ? null : 'finished'
+  if (sent === 'Reading') return current === 'to_read' ? 'reading' : null
+  if (sent === 'ReadyToRead' && previous) return current === 'to_read' ? null : 'to_read'
+  return null
+}
+
+export interface AtrilBook {
+  id: string
+  title: string
+  author: string | null
+  language: string | null
+  status: BookStatus
+  added_at: string
+  finished_at: string | null
+  updated_at: string
+}
+export interface AtrilPosition { section: number | null; sentence: number | null; fraction: number | null; device: string | null; updated_at: string }
+
+// The reading state Atril hands the device for a book: the Kobo's own last
+// state when the latest place is its own, else Atril's place, dated by when it
+// was decided so the device takes it over an older one of its own.
+export function readingState(book: AtrilBook, position: AtrilPosition | null, map: KepubMap | null, own: { state: KoboState | null; device: string }): KoboState {
+  const minutes = own.state?.Statistics?.SpentReadingMinutes
+  const latest = [book.updated_at, position?.updated_at].filter(Boolean).sort().pop()!
+  const at = koboTime(latest)
+  if (own.state && (!position || position.device === own.device) && own.state.StatusInfo?.Status === koboStatus(book.status)) {
+    return { ...own.state, EntitlementId: book.id }
+  }
+  const status = koboStatus(book.status)
+  const state: KoboState = {
+    EntitlementId: book.id,
+    Created: koboTime(book.added_at),
+    LastModified: at,
+    PriorityTimestamp: at,
+    StatusInfo: { LastModified: at, Status: status, TimesStartedReading: status === 'ReadyToRead' ? 0 : 1 },
+    Statistics: { LastModified: at, ...(minutes ? { SpentReadingMinutes: minutes } : {}) },
+    CurrentBookmark: { LastModified: at },
+  }
+  if (status === 'Finished' && book.finished_at) state.StatusInfo.LastTimeFinished = koboTime(book.finished_at)
+  const place = position && map ? placeForKobo(map, position.section, position.sentence) : null
+  if (place && position) {
+    state.CurrentBookmark = {
+      LastModified: at,
+      ProgressPercent: Math.round((position.fraction ?? 0) * 100),
+      ContentSourceProgressPercent: place.chapterPercent,
+      Location: place.location,
+    }
+  } else if (own.state?.CurrentBookmark) {
+    state.CurrentBookmark = { ...own.state.CurrentBookmark }
+  }
+  return state
+}
+
+export function metadata(book: AtrilBook, base: string, size: number | null): KoboState {
+  return {
+    Categories: ['00000000-0000-0000-0000-000000000001'],
+    ContributorRoles: book.author ? book.author.split(/,\s*/).map(Name => ({ Name })) : [],
+    Contributors: book.author ? book.author.split(/,\s*/) : [],
+    CoverImageId: book.id,
+    CrossRevisionId: book.id,
+    CurrentDisplayPrice: { CurrencyCode: 'USD', TotalAmount: 0 },
+    CurrentLoveDisplayPrice: { TotalAmount: 0 },
+    Description: null,
+    DownloadUrls: [{ DrmType: 'None', Format: 'KEPUB', Platform: 'Generic', Size: size ?? 0, Url: `${base}/download/${book.id}` }],
+    EntitlementId: book.id,
+    ExternalIds: [],
+    Genre: '00000000-0000-0000-0000-000000000001',
+    IsEligibleForKoboLove: false,
+    IsInternetArchive: false,
+    IsPreOrder: false,
+    IsSocialEnabled: true,
+    Language: (book.language ?? 'es').split('-')[0],
+    PhoneticPronunciations: {},
+    PublicationDate: koboTime(book.added_at),
+    Publisher: { Imprint: '', Name: '' },
+    RevisionId: book.id,
+    Title: book.title,
+    WorkId: book.id,
+  }
+}
+
+export function entitlement(book: AtrilBook, removed = false): KoboState {
+  return {
+    Accessibility: 'Full',
+    ActivePeriod: { From: koboTime(book.added_at) },
+    Created: koboTime(book.added_at),
+    CrossRevisionId: book.id,
+    Id: book.id,
+    IsRemoved: removed,
+    IsHiddenFromArchive: false,
+    IsLocked: false,
+    LastModified: koboTime(book.updated_at),
+    OriginCategory: 'Imported',
+    RevisionId: book.id,
+    Status: removed ? 'Deleted' : 'Active',
+  }
+}
+
+// A book that left the library, for a device that has it.
+export function removedEntitlement(id: string, at: string): KoboState {
+  const t = koboTime(at)
+  return {
+    ChangedEntitlement: {
+      BookEntitlement: {
+        Accessibility: 'Full', ActivePeriod: { From: t }, Created: t, CrossRevisionId: id, Id: id, IsRemoved: true,
+        IsHiddenFromArchive: false, IsLocked: false, LastModified: t, OriginCategory: 'Imported', RevisionId: id, Status: 'Deleted',
+      },
+      BookMetadata: { CrossRevisionId: id, RevisionId: id, EntitlementId: id, WorkId: id, Title: id },
+    },
+  }
+}
+
+// The sync token: opaque to the device, it hands it back on the next sync.
+export interface SyncCursor { books: string; positions: string; deleted: string }
+const EPOCH = '1970-01-01T00:00:00Z'
+
+export function readCursor(header: string | null): SyncCursor | null {
+  if (!header) return null
+  try {
+    const raw = JSON.parse(atob(header))
+    if (raw?.atril !== 1) return null
+    return { books: raw.b ?? EPOCH, positions: raw.p ?? EPOCH, deleted: raw.d ?? EPOCH }
+  } catch {
+    return null  // Kobo's own token, from before this device synced with Atril
+  }
+}
+
+export function writeCursor(c: SyncCursor): string {
+  return btoa(JSON.stringify({ atril: 1, b: c.books, p: c.positions, d: c.deleted }))
+}
+
+export const START: SyncCursor = { books: EPOCH, positions: EPOCH, deleted: EPOCH }

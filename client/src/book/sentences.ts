@@ -22,6 +22,10 @@ export interface SentenceRange {
   text: string
   block: number
   heading: boolean
+  // The text nodes the sentence covers, each with its [start, end) offsets, in
+  // document order (skipped elements, e.g. a footnote reference inside the
+  // sentence, are not among them). The KEPUB builder wraps each in a span.
+  pieces: [Text, number, number][]
 }
 
 function epubTypes(el: Element): string[] {
@@ -97,7 +101,13 @@ export function segmentDocument(doc: Document, lang: string): SentenceRange[] {
       const [en, eo] = locate(b, true)
       range.setStart(sn, so)
       range.setEnd(en, eo)
-      result.push({ range, text, block: blockIndex, heading })
+      const pieces: [Text, number, number][] = []
+      for (let k = 0; k < group.length; k++) {
+        const from = Math.max(a, starts[k]) - starts[k]
+        const to = Math.min(b, starts[k] + strs[k].length) - starts[k]
+        if (to > from) pieces.push([group[k], from, to])
+      }
+      result.push({ range, text, block: blockIndex, heading, pieces })
     }
   }
   return result

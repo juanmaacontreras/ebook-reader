@@ -9,6 +9,7 @@ on:
       - 'client/**'
       - 'tts-worker/worker/**'
       - 'tts-worker/tests/**'
+      - 'supabase/functions/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
@@ -46,6 +47,11 @@ jobs:
       - name: Unit tests (worker text/timing logic, stdlib only)
         run: python -m unittest discover -s tests -v
         working-directory: tts-worker
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.6
+      - name: Typecheck + unit tests (Kobo sync function)
+        run: deno check --no-lock supabase/functions/kobo/index.ts && deno test --no-lock supabase/functions/kobo
 
   android:
     needs: test

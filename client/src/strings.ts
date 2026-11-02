@@ -282,6 +282,7 @@ export const t = {
   devicePhone: 'Celular',
   deviceTablet: 'Tablet',
   devicePc: 'PC',
+  deviceEreader: 'Kobo',
   perBook: 'Por libro',
   started: (d: string) => `Empezado el ${d}`,
   finishedOn: (d: string) => `terminado el ${d}`,

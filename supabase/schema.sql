@@ -2,8 +2,8 @@
 -- existing project (it is how schema changes are applied, see CLAUDE.md).
 --
 -- Every row belongs to a Supabase Auth user (user_id) and RLS limits each user to
--- their own rows. The TTS worker on the PC uses the secret (service role) key,
--- which bypasses RLS.
+-- their own rows. The TTS worker on the PC signs in as the user and goes through
+-- RLS like any device; only the Kobo function (see "Kobo") uses the service role.
 --
 -- Conflict rule for everything the devices write: last writer wins by the
 -- client-side updated_at. The lww_guard trigger silently drops an UPDATE that is
@@ -259,6 +259,69 @@ end $$;
 drop trigger if exists log_delete on public.books;
 create trigger log_delete after delete on public.books
   for each row execute function public.log_deleted_book();
+
+-- ===== Kobo ==================================================================
+-- A Kobo e-reader syncs with Atril as if Atril were Kobo's store: its
+-- eReader.conf has api_endpoint=<project>/functions/v1/kobo/<token>, served by
+-- supabase/functions/kobo. That function is the only code that uses the
+-- service-role key (server-side, in Supabase's own environment), and every
+-- query it makes is limited to the user the token belongs to. Devices never
+-- read these tables: RLS on, no policy.
+
+-- The KEPUB a Kobo reads (client/src/book/kepub.ts), set by the device that
+-- built it with a direct update; never part of a pushed row.
+alter table public.books add column if not exists kepub_path text;
+
+-- One row per Kobo. Only the SHA-256 of its token is kept.
+create table if not exists public.kobo_devices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users on delete cascade,
+  token_hash text not null unique,
+  name text not null default 'Kobo',
+  created_at timestamptz not null default now(),
+  last_seen timestamptz
+);
+
+-- What a Kobo has of each book: sent (so the next sync says "changed", not
+-- "new"), removed from its library by the user, and its own last reading
+-- state as it sent it (to tell a real move from the same place reported again
+-- when a book is opened, and its reading minutes for the stats).
+create table if not exists public.kobo_books (
+  device_id uuid not null references public.kobo_devices on delete cascade,
+  book_id uuid not null references public.books on delete cascade,
+  sent_at timestamptz not null default now(),
+  removed boolean not null default false,
+  state jsonb,
+  state_at timestamptz,
+  primary key (device_id, book_id)
+);
+
+-- Every request a Kobo makes (no token, no body), kept two weeks: when and how
+-- often it syncs is only learnt from this.
+create table if not exists public.kobo_log (
+  at timestamptz not null default now(),
+  device_id uuid references public.kobo_devices on delete cascade,
+  method text not null,
+  path text not null,
+  status int not null,
+  note text
+);
+create index if not exists kobo_log_at on public.kobo_log (at);
+
+alter table public.kobo_devices enable row level security;
+alter table public.kobo_books enable row level security;
+alter table public.kobo_log enable row level security;
+
+-- KEPUB sizes for the sync (the device wants each file's size up front).
+create or replace function public.kobo_kepub_sizes(uid uuid)
+returns table (book_id uuid, bytes bigint)
+language sql stable security definer set search_path = public, storage as $$
+  select (storage.foldername(o.name))[2]::uuid, (o.metadata->>'size')::bigint
+  from storage.objects o
+  where o.bucket_id = 'library' and (storage.foldername(o.name))[1] = uid::text
+    and o.name like '%/book.kepub.epub'
+$$;
+revoke execute on function public.kobo_kepub_sizes(uuid) from public, anon, authenticated;
 
 -- ===== Row level security ====================================================
 

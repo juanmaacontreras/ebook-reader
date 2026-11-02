@@ -13,6 +13,9 @@ export interface Book {
   epub_path: string
   cover_path: string | null
   text_path: string | null
+  // The KEPUB for a Kobo, once a device built it (data/kepubs.ts). Set only by
+  // that direct update, never pushed with the row.
+  kepub_path?: string | null
   size_bytes: number | null
   section_count: number | null
   status: BookStatus
@@ -32,7 +35,8 @@ export interface Position {
 }
 
 // A stretch of reading or listening on one device (stats). See supabase/schema.sql.
-export type DeviceKind = 'phone' | 'tablet' | 'pc'
+// ereader: a Kobo, whose sessions come from its reading time (supabase/functions/kobo).
+export type DeviceKind = 'phone' | 'tablet' | 'pc' | 'ereader'
 export interface ReadingSession {
   id: string
   book_id: string | null
