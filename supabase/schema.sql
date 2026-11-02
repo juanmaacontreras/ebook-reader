@@ -281,13 +281,18 @@ create table if not exists public.kobo_devices (
   created_at timestamptz not null default now(),
   last_seen timestamptz
 );
+-- A first version (2026-11-02, never merged) keyed devices by token_hash; it
+-- also left kobo_states / kobo_events (unused now, kobo_books / kobo_log
+-- replace them; drop them once the user agrees).
+alter table public.kobo_devices add column if not exists id uuid not null default gen_random_uuid();
+create unique index if not exists kobo_devices_id on public.kobo_devices (id);
 
 -- What a Kobo has of each book: sent (so the next sync says "changed", not
 -- "new"), removed from its library by the user, and its own last reading
 -- state as it sent it (to tell a real move from the same place reported again
 -- when a book is opened, and its reading minutes for the stats).
 create table if not exists public.kobo_books (
-  device_id uuid not null references public.kobo_devices on delete cascade,
+  device_id uuid not null references public.kobo_devices (id) on delete cascade,
   book_id uuid not null references public.books on delete cascade,
   sent_at timestamptz not null default now(),
   removed boolean not null default false,
@@ -296,16 +301,19 @@ create table if not exists public.kobo_books (
   primary key (device_id, book_id)
 );
 
--- Every request a Kobo makes (no token, no body), kept two weeks: when and how
--- often it syncs is only learnt from this.
+-- Every request a Kobo makes (never the token), kept two weeks: when and how
+-- often it syncs is only learnt from this. body: what it reported of a book
+-- (reading-state PUTs only), to check the protocol against a real device.
 create table if not exists public.kobo_log (
   at timestamptz not null default now(),
-  device_id uuid references public.kobo_devices on delete cascade,
+  device_id uuid references public.kobo_devices (id) on delete cascade,
   method text not null,
   path text not null,
   status int not null,
-  note text
+  note text,
+  body jsonb
 );
+alter table public.kobo_log add column if not exists body jsonb;
 create index if not exists kobo_log_at on public.kobo_log (at);
 
 alter table public.kobo_devices enable row level security;

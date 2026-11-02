@@ -257,13 +257,16 @@ function taken(id: string): Response {
   })
 }
 
-async function putState(req: Request, dev: Device, id: string): Promise<{ res: Response; note?: string }> {
+type Routed = { res: Response; note?: string; body?: unknown }
+
+async function putState(req: Request, dev: Device, id: string): Promise<Routed> {
   const book = await bookOf(dev, id)
   if (!book) return { res: taken(id), note: 'not ours' }  // a store book, or one removed from Atril
   // deno-lint-ignore no-explicit-any
   const body: any = await req.json().catch(() => null)
   const incoming: KoboState | undefined = body?.ReadingStates?.[0]
-  if (!incoming) return { res: json({ error: 'missing ReadingStates' }, 400) }
+  if (!incoming) return { res: json({ error: 'missing ReadingStates' }, 400), body }
+  const sent = structuredClone(incoming)
   const known = (await koboBooks(dev, [id])).get(id)
   const previous = known?.state ?? null
   // What a report leaves out stays as it was.
@@ -331,7 +334,7 @@ async function putState(req: Request, dev: Device, id: string): Promise<{ res: R
     method: 'POST', prefer: 'resolution=merge-duplicates',
     body: JSON.stringify({ device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString() }),
   })
-  return { res: taken(id), note: notes.join('; ') || 'no change' }
+  return { res: taken(id), note: notes.join('; ') || 'no change', body: sent }
 }
 
 // ---- Files --------------------------------------------------------------------------
@@ -361,7 +364,7 @@ function toKobo(path: string, url: URL): { res: Response; note: string } {
   return { res: Response.redirect(`${KOBO_STORE}/${path}${url.search}`, 307), note: 'store book' }
 }
 
-async function route(req: Request, url: URL, dev: Device, path: string, base: string): Promise<{ res: Response; note?: string }> {
+async function route(req: Request, url: URL, dev: Device, path: string, base: string): Promise<Routed> {
   const m = req.method
   let x: RegExpExecArray | null
   if (path === 'v1/initialization') return { res: await initialization(req, base) }
@@ -433,8 +436,9 @@ Deno.serve(async (req: Request) => {
   const base = `${URL_BASE}/functions/v1/kobo/${token}`
   let res: Response
   let note: string | undefined
+  let body: unknown
   try {
-    ;({ res, note } = await route(req, url, dev, path, base))
+    ;({ res, note, body } = await route(req, url, dev, path, base))
   } catch (e) {
     console.error('kobo:', req.method, path, e)
     res = json({ error: 'failed' }, 500)
@@ -443,7 +447,7 @@ Deno.serve(async (req: Request) => {
   // The log: never the token (it is in the path's first segment, left out).
   const logged = rest('kobo_log', {
     method: 'POST',
-    body: JSON.stringify({ device_id: dev.id, method: req.method, path: path.slice(0, 200), status: res.status, note: note ?? null }),
+    body: JSON.stringify({ device_id: dev.id, method: req.method, path: path.slice(0, 200), status: res.status, note: note ?? null, body: body ?? null }),
   }).then(() => rest(`kobo_devices?id=eq.${dev!.id}`, { method: 'PATCH', body: JSON.stringify({ last_seen: new Date().toISOString() }) }))
     .then(() => Math.random() < 0.02 ? rest(`kobo_log?at=lt.${q(new Date(Date.now() - 14 * 864e5).toISOString())}`, { method: 'DELETE' }) : null)
     .catch(e => console.error('kobo: log failed', e))
