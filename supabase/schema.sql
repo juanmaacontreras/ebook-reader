@@ -260,6 +260,43 @@ drop trigger if exists log_delete on public.books;
 create trigger log_delete after delete on public.books
   for each row execute function public.log_deleted_book();
 
+-- ===== Kobo ==================================================================
+-- The Kobo e-reader is one more device: it talks to the `kobo` Edge Function
+-- (supabase/functions/kobo), which speaks the Kobo sync protocol. These tables
+-- are touched only by that function (service role); RLS is on with no policy,
+-- so no app or anon key can read them.
+-- A device is a secret in the Kobo's `api_endpoint` URL; only its hash is stored.
+create table if not exists public.kobo_devices (
+  token_hash text primary key,
+  user_id uuid not null references auth.users on delete cascade,
+  name text,
+  created_at timestamptz not null default now(),
+  last_seen timestamptz
+);
+-- What the Kobo last reported for a book, as it sent it (raw), plus our reading
+-- of it. The position itself lands in `positions` like any other device.
+create table if not exists public.kobo_states (
+  book_id uuid primary key references public.books on delete cascade,
+  user_id uuid not null references auth.users on delete cascade,
+  status text,                         -- ReadyToRead / Reading / Finished
+  progress real,                       -- ProgressPercent
+  source_progress real,                -- ContentSourceProgressPercent
+  location jsonb,                      -- {Value, Type, Source}
+  spent_minutes int,
+  remaining_minutes int,
+  raw jsonb,
+  last_modified timestamptz not null default now()
+);
+-- Raw requests, newest 300, to see what a real Kobo sends (firmware differs).
+create table if not exists public.kobo_events (
+  id bigint generated always as identity primary key,
+  user_id uuid,
+  at timestamptz not null default now(),
+  method text,
+  path text,
+  body jsonb
+);
+
 -- ===== Row level security ====================================================
 
 do $$
@@ -272,6 +309,16 @@ begin
                     using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
   end loop;
 end $$;
+
+create or replace function public.kobo_trim_events() returns void
+language sql security definer set search_path = public as $$
+  delete from public.kobo_events where id <= (select max(id) from public.kobo_events) - 300;
+$$;
+revoke execute on function public.kobo_trim_events() from public, anon, authenticated;
+
+alter table public.kobo_devices enable row level security;
+alter table public.kobo_states enable row level security;
+alter table public.kobo_events enable row level security;
 
 -- ===== Realtime ==============================================================
 

@@ -397,6 +397,30 @@ screens and bottom sheets on phones. The reading surface has its own themes
   deletes its file; `sweep_removed` clears `work/` of removed books. A removed
   book's sessions drop out of the per-language speed (no language without the book).
 
+- 2026-11-02: **Kobo Clara BW arrived; building option 1 (Atril as the Kobo
+  sync server).** Server side written, *nothing deployed and nothing confirmed on a
+  device yet*: Edge Function `supabase/functions/kobo/` (`protocol.ts` pure +
+  tested in `client/tests/kobo.test.ts`, `index.ts` wiring, `resources.json` = the
+  device's store URL list with the host replaced by ours). Runs on Supabase (always
+  on, no PC needed); the device is pointed at it by `api_endpoint` in
+  `.kobo/Kobo/Kobo eReader.conf`. Device = a secret token in that URL, stored hashed
+  in `kobo_devices`; created once by SQL, so **no Kobo UI in Atril**. Tables
+  `kobo_devices`, `kobo_states` (what the Kobo reported, raw), `kobo_events`
+  (raw request log, newest 300, to correct the protocol against real traffic) have
+  RLS on and no policy: only the function (service role, injected by Supabase)
+  touches them. Library sent = every book (EPUB as is, no KEPUB yet); sync cursor
+  is our own opaque token over `books.synced_at` / `positions.synced_at`. Position:
+  Kobo percent <-> manifest sentence by cumulative text length (`placeAtPercent` /
+  `percentAtSentence`), written to `positions` with device 'kobo'; Atril -> Kobo
+  sends percent only (no `Location`, since koboSpan ids need a KEPUB). Kobo status
+  Reading/Finished updates the book; ReadyToRead never undoes. Deleting on the Kobo
+  does not remove from the library. Open until the device is connected: does the
+  firmware honor percent without a Location; how often it syncs by itself; whether
+  sentence-level needs our own KEPUB (spans = manifest sentences); highlights and
+  reading time (helper on the device, Kobo -> Atril only); deploy needs a
+  Management API token (schema + function), same procedure as "Applying schema
+  changes".
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
