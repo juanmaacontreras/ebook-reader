@@ -25,7 +25,17 @@ import {
 } from './logic.ts'
 
 const URL_BASE = Deno.env.get('SUPABASE_URL')!
-const KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+// The project's secret key: the new-style one when Supabase provides it, else
+// the legacy service_role JWT.
+function secretKey(): string {
+  try {
+    const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}') as Record<string, string>
+    const k = keys.default ?? Object.values(keys)[0]
+    if (k) return k
+  } catch { /* not set */ }
+  return Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+}
+const KEY = secretKey()
 const KOBO_STORE = 'https://storeapi.kobo.com'
 const LIMIT = 100
 
