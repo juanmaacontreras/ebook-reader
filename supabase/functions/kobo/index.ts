@@ -25,7 +25,7 @@
 import {
   type AtrilBook, type AtrilPosition, deviceTime, entitlement, type KepubMap, type KoboState, type Manifest,
   metadata, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, START, statusChange,
-  type SyncCursor, wordsBetween, writeCursor,
+  type SyncCursor, takesPlace, wordsBetween, writeCursor,
 } from './logic.ts'
 
 const URL_BASE = Deno.env.get('SUPABASE_URL')!
@@ -287,8 +287,9 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   if (!UUID.test(id)) return { res: taken(id), note: 'not ours' }
   // Everything this needs, at once (the map and the text are cached).
   // deno-lint-ignore no-explicit-any
-  const [book, body, kb, map, text]: [BookRow | null, any, Map<string, KoboBook>, KepubMap | null, Manifest | null] = await Promise.all([
+  const [book, body, kb, map, text, places]: [BookRow | null, any, Map<string, KoboBook>, KepubMap | null, Manifest | null, Map<string, AtrilPosition>] = await Promise.all([
     bookOf(dev, id), req.json().catch(() => null), koboBooks(dev, [id]), kepubMap(dev.user_id, id), manifest(dev.user_id, id),
+    positionsOf(dev, [id]),
   ])
   if (!book) return { res: taken(id), note: 'not ours' }  // a store book, or one removed from Atril
   const incoming: KoboState | undefined = body?.ReadingStates?.[0]
@@ -306,8 +307,12 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   const from = map && previous ? placeFromKobo(map, previous.CurrentBookmark?.Location) : null
   const when = deviceTime(incoming.CurrentBookmark?.LastModified, now) ?? deviceTime(incoming.LastModified, now) ?? now
 
-  // Place: only a real move (not the same place reported again on open/close).
-  if (to && !samePlace(previous, incoming)) {
+  // Place: only a real move (not the same place reported again on open/close),
+  // and never back past a newer place this device hadn't reached (takesPlace).
+  const moved = !!to && !samePlace(previous, incoming)
+  const current = places.get(id) ?? null
+  if (to && moved && !takesPlace(to, from, current, dev.tag)) notes.push(`behind ${current?.section}.${current?.sentence}: kept`)
+  else if (to && moved) {
     const cfi = text?.sections.find(s => s.i === to.section)?.sentences[to.sentence]?.c
     if (cfi) {
       const pct = Number(incoming.CurrentBookmark?.ProgressPercent)
@@ -316,7 +321,7 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
         body: JSON.stringify({
           book_id: id, user_id: dev.user_id, cfi, section: to.section, sentence: to.sentence,
           fraction: Number.isFinite(pct) ? Math.min(Math.max(pct / 100, 0), 1) : null,
-          device: dev.tag, updated_at: when.toISOString(),
+          device: dev.tag, updated_at: when.toISOString(), base: null,
         }),
       }))
       notes.push(`place ${to.section}.${to.sentence}`)
@@ -324,7 +329,7 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   }
 
   // Status: only a change made on the device.
-  const status = statusChange(previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, book.status)
+  const status = statusChange(previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, book.status, moved)
   const decided = deviceTime(incoming.StatusInfo?.LastModified, now) ?? now
   if (status && decided.toISOString() > book.updated_at) {
     writes.push(rest(`books?id=eq.${id}&user_id=eq.${dev.user_id}`, {

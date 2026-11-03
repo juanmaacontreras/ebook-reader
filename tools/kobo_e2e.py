@@ -112,11 +112,11 @@ def main() -> None:
         now = datetime.fromisoformat(imported).replace(microsecond=0) + timedelta(minutes=11)
         ts = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        def report(value: str, minutes: int, status_: str, at: datetime):
+        def report(value: str, minutes: int, status_: str, at: datetime, source: str | None = None):
             body = {"ReadingStates": [{
                 "EntitlementId": bid, "LastModified": ts(at),
                 "CurrentBookmark": {"LastModified": ts(at), "ProgressPercent": 40, "ContentSourceProgressPercent": 20,
-                                    "Location": {"Value": value, "Type": "KoboSpan", "Source": f1["p"]}},
+                                    "Location": {"Value": value, "Type": "KoboSpan", "Source": source or f1["p"]}},
                 "Statistics": {"LastModified": ts(at), "SpentReadingMinutes": minutes, "RemainingTimeMinutes": 30},
                 "StatusInfo": {"LastModified": ts(at), "Status": status_, "TimesStartedReading": 1},
             }]}
@@ -161,9 +161,49 @@ def main() -> None:
         status, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
         check(status == 200 and got[0]["CurrentBookmark"]["Location"]["Value"] == "kobo.5.1", "GET state agrees")
 
+        pos_q = f"select section, sentence, device from positions where book_id = {lit(bid)}"
+        later = lambda: (time.sleep(1.1), datetime.now(timezone.utc))[1]  # noqa: E731 (the device writes whole seconds)
+        print("kobo: picked up before taking the phone's place")
+        report("kobo.4.1", 8, "Reading", later())
+        pos = sql(pos_q)[0]
+        check(pos["device"] == "phone-e2e" and (pos["section"], pos["sentence"]) == (s2["i"], 4),
+              "reading on behind the phone's newer place doesn't take it back")
+        report("kobo.5.1", 8, "Reading", later(), fl["p"])
+        pos = sql(pos_q)[0]
+        check(pos["device"].startswith("kobo:") and (pos["section"], pos["sentence"]) == (s2["i"], 4), "taking the phone's place: in sync")
+        report("kobo.3.1", 8, "Reading", later(), fl["p"])
+        pos = sql(pos_q)[0]
+        check((pos["section"], pos["sentence"]) == (s2["i"], 2), "then a page back on the Kobo goes to everyone")
+
+        print("status both ways")
+        http("PATCH", f"{URL}/rest/v1/books?id=eq.{bid}", {"status": "to_read", "finished_at": None,
+             "updated_at": datetime.now(timezone.utc).isoformat()}, user)  # "Marcar como «Por leer»" on the phone
+        status, h, items = http("GET", f"{base}/v1/library/sync", headers={**kobo, "x-kobo-synctoken": cursor})
+        states = [i["ChangedReadingState"]["ReadingState"] for i in items if "ChangedReadingState" in i] \
+            + [i["ChangedEntitlement"]["ReadingState"] for i in items if "ChangedEntitlement" in i and "ReadingState" in i["ChangedEntitlement"]]
+        check(len(states) == 1 and states[0]["StatusInfo"]["Status"] == "ReadyToRead", "\"Por leer\" in Atril reaches the Kobo's sync as ReadyToRead")
+        cursor = h.get("x-kobo-synctoken") or cursor
+        _, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
+        check(got[0]["StatusInfo"]["Status"] == "ReadyToRead", "…and its GET state")
+        st = lambda: sql(f"select status from books where id = {lit(bid)}")[0]["status"]  # noqa: E731
+        report("kobo.3.1", 8, "Reading", later(), fl["p"])
+        check(st() == "to_read", "the Kobo repeating \"Reading\" at the same place doesn't undo it")
+        report("kobo.4.1", 9, "Reading", later(), fl["p"])
+        check(st() == "reading", "reading on the Kobo (its place moved) makes it \"Leyendo\" again")
+        report("kobo.4.1", 9, "ReadyToRead", later(), fl["p"])
+        check(st() == "to_read", "\"Mark as unread\" on the Kobo → \"Por leer\" in Atril")
+        report("kobo.4.1", 9, "Reading", later(), fl["p"])
+        check(st() == "reading", "opened again on the Kobo → \"Leyendo\"")
+
         print("kobo: finished, then removed on the device")
-        report("kobo.5.1", 7, "Finished", datetime.now(timezone.utc))
-        check(sql(f"select status from books where id = {lit(bid)}")[0]["status"] == "finished", "Finished on the Kobo → terminado in Atril")
+        report("kobo.5.1", 9, "Finished", later(), fl["p"])
+        check(st() == "finished", "Finished on the Kobo → terminado in Atril")
+        report("kobo.5.1", 9, "Reading", later(), fl["p"])
+        check(st() == "reading", "taken up again on the Kobo (Finished → Reading) → \"Leyendo\"")
+        http("PATCH", f"{URL}/rest/v1/books?id=eq.{bid}", {"status": "finished", "finished_at": datetime.now(timezone.utc).isoformat(),
+             "updated_at": datetime.now(timezone.utc).isoformat()}, user)  # "terminado" on the phone
+        report("kobo.6.1", 10, "Reading", later(), fl["p"])
+        check(st() == "finished", "\"terminado\" decided on the phone isn't undone by the Kobo reading on")
         status, _, _ = http("DELETE", f"{base}/v1/library/{bid}", headers=kobo)
         removed = sql(f"select removed from kobo_books where book_id = {lit(bid)}")
         check(status == 204 and removed and removed[0]["removed"] is True, "removed on the device: not offered again")

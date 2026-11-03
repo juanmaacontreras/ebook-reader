@@ -59,7 +59,10 @@ export const positions = {
     return localWrite((async () => {
       const cur = await positions.get(p.book_id)
       if (cur && cur.cfi === p.cfi) return
-      await db.put('positions', { ...p, device: await deviceId(), updated_at: now(), _dirty: true })
+      // The newest place this device had seen from the server; moves of its own
+      // not sent yet carry that same knowledge forward.
+      const base = cur ? (cur._dirty ? cur.base ?? null : cur.updated_at) : null
+      await db.put('positions', { ...p, base, device: await deviceId(), updated_at: now(), _dirty: true })
       pushSoon(how === 'listen' ? 10_000 : 0)
     })())
   },

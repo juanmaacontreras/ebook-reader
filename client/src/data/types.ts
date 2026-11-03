@@ -32,6 +32,9 @@ export interface Position {
   fraction: number | null
   device: string | null
   updated_at: string
+  // What the device knew when it moved here: the updated_at of the newest place
+  // it had seen. Sent with each write, never stored (position_guard, schema.sql).
+  base?: string | null
 }
 
 // A stretch of reading or listening on one device (stats). See supabase/schema.sql.

@@ -50,7 +50,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     h('button.iconbtn.flat', { 'aria-label': t.back, onclick: () => goBack() }, icon('back')),
     h('div.rtitle', titleEl, chapterEl),
     h('button.iconbtn.flat', { title: t.contents, 'aria-label': t.contents, onclick: () => showToc() }, icon('list')),
-    h('button.iconbtn.flat', { title: t.highlights, 'aria-label': t.highlights, onclick: () => openHighlightsPanel(book.id, () => {}, cfi => void view.goTo(cfi)) }, icon('highlight')),
+    h('button.iconbtn.flat', { title: t.highlights, 'aria-label': t.highlights, onclick: () => openHighlightsPanel(book.id, () => {}, cfi => void jumpTo(() => view.goTo(cfi))) }, icon('highlight')),
     h('button.iconbtn.flat', { title: t.readingSettings, 'aria-label': t.readingSettings, onclick: () => openReadingSettings() }, icon('type')),
     listenBtn)
   const shell = h('div.reader.chrome-off', stage, topbar, dock, h('div.rfoot', footLeft, footRight))
@@ -116,13 +116,42 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   let lastLoc: Location | null = null
   let textLoc: Location | null = null  // last location that starts in the text
   let audioDriven = false
-  let lastSaved = ''
+  let opened = false
+  // The place all devices share, as far as this one knows: what it saved last,
+  // or a newer place from another device (offerRemote). A move made here goes
+  // whenever it differs from this one — also back to a page this device had
+  // saved before another device moved on (it once didn't: going back to the
+  // chapter's first page on the PC never reached the Kobo).
+  let synced: { cfi: string; section: number | null; sentence: number | null } | null = null
+  // Another device's newer place is known here but this one still shows an
+  // older page (its "Ir" wasn't taken). Reading on from that page doesn't take
+  // everyone back: only reaching past that place, or an explicit jump (TOC,
+  // slider, a highlight), counts. The server applies the same rule to a device
+  // that hadn't even heard of the newer place (positions.base, schema.sql).
+  let behind = false
   let lastPos: { section: number; sentence: number } | null = null
   const savePosition = (section: number, sentence: number, cfi: string, how: 'read' | 'listen' = 'read') => {
     lastPos = { section, sentence }
-    if (cfi === lastSaved) return
-    lastSaved = cfi
+    if (cfi === synced?.cfi) { behind = false; return }
+    if (behind && !explicit && !isAhead({ section, sentence }, synced)) return
+    behind = false
+    synced = { cfi, section, sentence }
     void positions.save({ book_id: book.id, cfi, section, sentence, fraction: lastLoc?.fraction ?? null }, how)
+  }
+  // Moves this device shows but didn't decide (opening the book, "Ir"): the
+  // page is shown, the place isn't claimed. Claiming it would push the top of
+  // the page (a few sentences earlier) as this device's, newer than the place
+  // it came from, and count the jump as reading here.
+  let following = 0
+  const follow = async (go: () => Promise<unknown>) => {
+    following++
+    try { await go() } finally { following-- }
+  }
+  // Jumps the reader asked for here (TOC, slider, highlights): always a decision.
+  let explicit = 0
+  const jumpTo = async (go: () => Promise<unknown>) => {
+    explicit++
+    try { await go() } finally { explicit-- }
   }
 
   view.addEventListener('relocate', ((e: CustomEvent<Location>) => {
@@ -132,6 +161,17 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     chapterEl.textContent = loc.tocItem?.label ?? ''
     updateFooter(loc)
     slider.value = String(loc.fraction ?? 0)
+  }) as EventListener)
+
+  // The reading position, from the renderer's own relocate: it runs right after
+  // the view's (above, registered on open) and says why the page moved.
+  // 'anchor' is the same place laid out again (window resized or re-tiled,
+  // fonts, images, settings), never a move: saving it could push this device's
+  // old page over a newer place from another one. Anything else (pages, swipes,
+  // scrolling, TOC, slider, links) is the reader's own move.
+  view.renderer.addEventListener('relocate', ((e: CustomEvent<{ reason?: string | null }>) => {
+    const loc = lastLoc
+    if (!loc) return
     if (audioDriven && narr?.playing) return  // while listening, the voice sets the position
     const c = currentDoc()
     if (!c || !loc.range || loc.range.startContainer.ownerDocument !== c.doc) return
@@ -142,15 +182,19 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     const start = loc.range.startContainer
     if (start === c.doc.body || start === c.doc.documentElement) return
     textLoc = loc
+    if (e.detail?.reason === 'anchor') return
     const sents = sentencesOf(c.index, c.doc)
-    if (!sents.length) { savePosition(c.index, 0, loc.cfi); return }
-    const k = sentenceAt(sents, loc.range.startContainer, loc.range.startOffset)
-    const cfi = manifest?.sections.find(s => s.i === c.index)?.sentences[k]?.c ?? view.getCFI(c.index, sents[k].range)
+    const k = sents.length ? sentenceAt(sents, loc.range.startContainer, loc.range.startOffset) : 0
+    const at = { section: c.index, sentence: k }
+    if (following) { lastPos = at; tracker.moved(at); return }
+    pagesSeen.add(loc.cfi)
+    if (!opened) { lastPos = at; void tracker.activity('read', at); return }
+    const cfi = !sents.length ? loc.cfi
+      : manifest?.sections.find(s => s.i === c.index)?.sentences[k]?.c ?? view.getCFI(c.index, sents[k].range)
     savePosition(c.index, k, cfi)
-    void tracker.activity('read', { section: c.index, sentence: k })
+    void tracker.activity('read', at)
     // Opening a book is not reading it: "Leyendo" (and automatic narration)
     // only after a few page turns or two minutes in the book.
-    pagesSeen.add(loc.cfi)
     if (book.status === 'to_read' && (pagesSeen.size >= 4 || Date.now() - openedAt > 120_000)) {
       book.status = 'reading'
       void books.setStatus(book.id, 'reading')
@@ -208,7 +252,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const selbar = h('div.card.selbar.hidden')
   const navrow = h('div.card.navrow')
   const slider = h('input', { type: 'range', min: '0', max: '1', step: '0.001', value: '0' }) as HTMLInputElement
-  slider.oninput = () => void view.goToFraction(parseFloat(slider.value))
+  slider.oninput = () => void jumpTo(() => view.goToFraction(parseFloat(slider.value)))
   navrow.append(slider)
   dock.append(selbar, navrow)
 
@@ -330,6 +374,13 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       return r.compareBoundaryPoints(Range.START_TO_START, range) <= 0 && r.compareBoundaryPoints(Range.END_TO_END, range) >= 0
     } catch { return false }
   }
+  // Whether that sentence is on the page shown now.
+  const showing = (section: number | null, sentence: number | null) => {
+    const c = currentDoc()
+    if (!c || section !== c.index || sentence === null) return false
+    const r = sentencesOf(c.index, c.doc)[sentence]?.range
+    return !!r && visible(r)
+  }
 
   if (manifest) {
     narr = await new NarrationController(book, manifest, {
@@ -388,16 +439,19 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     else await showPlayer()
   }
 
-  const showToc = () => openToc(view, narr, chapterEl.textContent ?? '', href => void view.goTo(href))
+  const showToc = () => openToc(view, narr, chapterEl.textContent ?? '', href => void jumpTo(() => view.goTo(href)))
 
   // ---- Remote position (another device) ---------------------------------------
   // Offered once the book is open: a place that arrives while it opens is the
   // one it opens at (or, if it came too late for that, offered right after).
-  let opened = false
   const offerRemote = async () => {
     const p = await positions.get(book.id)
-    if (opened && p && p.device !== me && p.cfi !== lastSaved && !(narr?.playing)) {
-      toast(t.continueOther, { label: t.goThere, run: () => { lastSaved = p.cfi; void view.goTo(p.cfi) } }, 6000)
+    if (!opened || !p || p.cfi === synced?.cfi) return
+    synced = { cfi: p.cfi, section: p.section, sentence: p.sentence }
+    if (p.device === me) return
+    behind = !showing(p.section, p.sentence)
+    if (behind && !(narr?.playing)) {
+      toast(t.continueOther, { label: t.goThere, run: () => { behind = false; void follow(() => view.goTo(p.cfi)) } }, 6000)
     }
   }
   const offChange = onChange(changed => {
@@ -407,13 +461,13 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   // ---- Open at the saved position ------------------------------------------------
   const pos = await freshPos
-  if (pos) lastSaved = pos.cfi
+  if (pos) synced = { cfi: pos.cfi, section: pos.section, sentence: pos.sentence }
   await view.init({ lastLocation: pos?.cfi, showTextStart: !pos })
   opened = true
   void offerRemote()
   await loadHighlights()
   const jump = sessionStorage.getItem('jump')
-  if (jump) { sessionStorage.removeItem('jump'); await view.goTo(jump) }
+  if (jump) { sessionStorage.removeItem('jump'); await jumpTo(() => view.goTo(jump)) }
   // "Escuchar" on the library's keep-reading card.
   if (sessionStorage.getItem('listen')) { sessionStorage.removeItem('listen'); listenBtn.click() }
 
@@ -431,6 +485,12 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     view.close()
     view.remove()
   }
+}
+
+/** Whether a place is past another one in the book (spine order, then sentence). */
+export function isAhead(a: { section: number; sentence: number }, b: { section: number | null; sentence: number | null } | null): boolean {
+  if (!b || b.section === null || b.sentence === null) return true
+  return a.section > b.section || (a.section === b.section && a.sentence > b.sentence)
 }
 
 async function loadManifest(book: Book): Promise<Manifest | null> {

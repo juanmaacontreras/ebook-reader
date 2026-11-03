@@ -96,14 +96,37 @@ export function koboStatus(status: BookStatus): 'ReadyToRead' | 'Reading' | 'Fin
 }
 
 // What Atril should do with a status the device sent. Only a change made on
-// the device counts (the device repeats its status on every report), and
-// "Reading" never undoes a "finished" decided elsewhere.
-export function statusChange(previous: string | undefined, sent: string | undefined, current: BookStatus): BookStatus | null {
-  if (!sent || sent === previous) return null
+// the device counts (the device repeats its status on every report), plus
+// reading on it: a book marked "Por leer" elsewhere becomes "Leyendo" again
+// when the device's place moves, as it does in the app after a few pages.
+// "Reading" undoes a "finished" only when the device itself had it finished
+// (taken up again there), never one decided elsewhere.
+export function statusChange(previous: string | undefined, sent: string | undefined, current: BookStatus, moved = false): BookStatus | null {
+  if (!sent) return null
+  if (sent === previous) return sent === 'Reading' && moved && current === 'to_read' ? 'reading' : null
   if (sent === 'Finished') return current === 'finished' ? null : 'finished'
-  if (sent === 'Reading') return current === 'to_read' ? 'reading' : null
+  if (sent === 'Reading') {
+    if (current === 'to_read') return 'reading'
+    return current === 'finished' && previous === 'Finished' ? 'reading' : null
+  }
   if (sent === 'ReadyToRead' && previous) return current === 'to_read' ? null : 'to_read'
   return null
+}
+
+export interface Place { section: number; sentence: number }
+export const before = (a: Place, b: Place) => a.section < b.section || (a.section === b.section && a.sentence < b.sentence)
+
+// Whether a place the device reports becomes everyone's. A device that hadn't
+// reached the newest place (another device's, and its own previous report
+// wasn't there: picked up before it synced, or the jump not taken) doesn't
+// take everyone back by reading on behind it; going past it counts. A device
+// in sync (the newest place is its own, or it had reached it) moves it
+// anywhere, back too. The apps follow the same rule (reader.ts, schema.sql).
+export function takesPlace(to: Place, from: Place | null, current: AtrilPosition | null, device: string): boolean {
+  if (!current || current.device === device || current.section === null || current.sentence === null) return true
+  const cur = { section: current.section, sentence: current.sentence }
+  if (from && from.section === cur.section && from.sentence === cur.sentence) return true
+  return !before(to, cur)
 }
 
 export interface AtrilBook {

@@ -200,13 +200,25 @@ async function pushTable(spec: Spec, gone: Set<string>): Promise<void> {
   if (gone.size) rows = await dropGone(spec.table, rows as Row[], gone)
   if (!rows.length) return
   const key = spec.table === 'positions' || spec.table === 'narrations' ? 'book_id' : 'id'
-  const { error } = await supabase.from(spec.table).upsert(rows.map(r => strip(r, spec.table)), { onConflict: key })
-  if (error) throw error
+  const payload = rows.map(r => strip(r, spec.table))
+  let kept: Set<string> | null = null
+  if (spec.table === 'positions') {
+    // The answer lists the places the server took; one it refused (it has a
+    // newer one: lww_guard; or this device hadn't seen another's newer place
+    // and was taking everyone back: position_guard) is fetched back below.
+    const { data, error } = await supabase.from('positions').upsert(payload, { onConflict: key }).select('book_id')
+    if (error) throw error
+    kept = new Set((data ?? []).map(r => r.book_id as string))
+  } else {
+    const { error } = await supabase.from(spec.table).upsert(payload, { onConflict: key })
+    if (error) throw error
+  }
   // Clear the flag only on rows nobody touched while the request was in flight.
   for (const row of rows) {
     const current = await db.get<Local<{ updated_at: string }>>(spec.store, (row as Record<string, unknown>)[key] as string)
     if (current && current.updated_at === row.updated_at) await db.put(spec.store, { ...current, _dirty: false })
   }
+  if (kept) for (const row of rows as Row[]) if (row.book_id && !kept.has(row.book_id)) void pullPosition(row.book_id, () => true)
 }
 
 type Row = Local<{ id?: string; book_id?: string | null; updated_at: string }>
