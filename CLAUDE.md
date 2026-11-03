@@ -434,9 +434,9 @@ screens and bottom sheets on phones. The reading surface has its own themes
   the repo; a Kobo reset or Kobo-account sign-in may restore the stock line:
   write it again from there). A cloud session had built a first version the same
   day (branch `ccr-f98e385e-g1tw2k`, never merged: plain EPUB, position by
-  percent); this one replaces it. Its tables `kobo_states` / `kobo_events` and a
-  `kobo_devices` row named "Kobo Clara BW" created 17:56 UTC (token lost) are
-  leftovers, to drop once the user agrees. Still open: highlights (need the
+  percent); this one replaces it. Its leftovers (tables `kobo_states` /
+  `kobo_events`, function `kobo_trim_events`, an unused `kobo_devices` row)
+  were dropped the same day with the user's OK. Still open: highlights (need the
   "reading services" at a host root: the device strips any path from
   `reading_services_host`, so a Supabase function URL can't take them; options:
   a free Cloudflare Worker at its own root, or reading `KoboReader.sqlite`); how
