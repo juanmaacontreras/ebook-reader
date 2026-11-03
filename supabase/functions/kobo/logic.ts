@@ -60,6 +60,13 @@ export function placeForKobo(map: KepubMap, section: number | null, sentence: nu
   }
 }
 
+// Where a book starts: its first sentence of text (a cover or an image has
+// none, and no place can stand there).
+export function startOf(manifest: Manifest): { section: number; sentence: 0; cfi: string } | null {
+  const s = manifest.sections.find(x => x.sentences.length)
+  return s ? { section: s.i, sentence: 0, cfi: s.sentences[0].c } : null
+}
+
 function words(text: string): number {
   return text.split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length
 }
@@ -108,14 +115,16 @@ export function koboStatus(status: BookStatus): 'ReadyToRead' | 'Reading' | 'Fin
 }
 
 // What Atril should do with a status the device sent. Only a change made on
-// the device counts (the device repeats its status on every report), plus
+// the device counts: not the status it repeats on every report, nor one Atril
+// told it (`told`: the device takes it and reports it back, maybe hours later
+// at its next sync, when the book may be "Leyendo" again elsewhere). Plus
 // reading on it: a book marked "Por leer" elsewhere becomes "Leyendo" again
 // when the device's place moves, as it does in the app after a few pages.
 // "Reading" undoes a "finished" only when the device itself had it finished
 // (taken up again there), never one decided elsewhere.
-export function statusChange(previous: string | undefined, sent: string | undefined, current: BookStatus, moved = false): BookStatus | null {
+export function statusChange(previous: string | undefined, sent: string | undefined, current: BookStatus, moved = false, told: string[] = []): BookStatus | null {
   if (!sent) return null
-  if (sent === previous) return sent === 'Reading' && moved && current === 'to_read' ? 'reading' : null
+  if (sent === previous || told.includes(sent)) return sent === 'Reading' && moved && current === 'to_read' ? 'reading' : null
   if (sent === 'Finished') return current === 'finished' ? null : 'finished'
   if (sent === 'Reading') {
     if (current === 'to_read') return 'reading'
@@ -123,6 +132,28 @@ export function statusChange(previous: string | undefined, sent: string | undefi
   }
   if (sent === 'ReadyToRead' && previous) return current === 'to_read' ? null : 'to_read'
   return null
+}
+
+// The statuses Atril told the device (in a reading state) that it hasn't
+// reported back yet, oldest first. Handing it a status other than the one it
+// last reported adds it; it is not dropped when the device repeats its own
+// (a report may still carry its state from before it took Atril's).
+export function tell(told: string[], reported: string | undefined, status: string): string[] {
+  if (status === reported) return told
+  return told[told.length - 1] === status ? told : [...told.filter(s => s !== status), status]
+}
+
+// ...and after a report: one it was told is done (with anything told before
+// it). Everything is dropped by a change of its own, and by a report made
+// after it was told that still has its own status (`fresh`: it didn't take
+// Atril's, or went on reading, which made the book "Leyendo" here): else a
+// "no leído" marked there later would pass for the echo. A report made
+// before it was told (one still pending when it got Atril's) keeps it.
+export function toldAfter(told: string[], previous: string | undefined, sent: string | undefined, fresh = false): string[] {
+  if (!sent || !told.length) return told
+  const k = told.indexOf(sent)
+  if (k >= 0) return told.slice(k + 1)
+  return sent === previous && !fresh ? told : []
 }
 
 export interface Place { section: number; sentence: number }

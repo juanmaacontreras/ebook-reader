@@ -13,7 +13,8 @@ import { confirmDialog, openDialog } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
 import { audioManager } from '../platform'
-import { coverMini, loadManifest, minutes, openBookPicker, openGenerateSheet } from './generate'
+import { loadManifest } from '../data/files'
+import { coverMini, minutes, openBookPicker, openGenerateSheet } from './generate'
 
 const CLOUD_LIMIT = 700e6  // worker default MAX_AUDIO_MB (tts-worker/README.md)
 

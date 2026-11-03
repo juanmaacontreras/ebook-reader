@@ -4,23 +4,14 @@
 // User decisions 2026-10-28). Nothing else starts the PC.
 
 import { db } from '../data/db'
-import { local, remote } from '../data/files'
+import { loadManifest, local } from '../data/files'
 import { books, jobSections, narration, positions, workerStatus } from '../data/store'
-import type { Book, Manifest, NarrationChapter, NarrationScope, VoiceInfo } from '../data/types'
-import { gunzipJson } from '../book/manifest'
+import type { Book, NarrationChapter, NarrationScope, VoiceInfo } from '../data/types'
 import { DEFAULT_VOICES, defaultVoice, featuredVoices } from '../audio/voices'
 import { t } from '../strings'
 import { confirmDialog, openDialog, segmented } from '../ui/dialog'
 import { clear, h } from '../ui/dom'
 import { icon } from '../ui/icons'
-
-export async function loadManifest(book: Book): Promise<Manifest | null> {
-  try {
-    let blob = await local.get(`text:${book.id}`)
-    if (!blob && book.text_path) { blob = await remote(book).download(book.text_path); await local.put(`text:${book.id}`, blob) }
-    return blob ? await gunzipJson<Manifest>(blob) : null
-  } catch { return null }
-}
 
 // GPU seconds per character on the user's PC (tts-worker/worker/jobs.py DEFAULT_RATE).
 const RATE: Record<string, number> = { kokoro: 0.003, 'chatterbox-v3': 0.22, 'chatterbox-latam': 0.22 }

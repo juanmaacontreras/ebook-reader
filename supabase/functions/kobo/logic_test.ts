@@ -2,7 +2,7 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
   deviceTime, fileFor, type KepubMap, type Manifest, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
-  statusChange, takesPlace, wordsBetween, writeCursor,
+  startOf, statusChange, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
 const map: KepubMap = { v: 1, files: [{ p: 'OEBPS/Text/cap1.xhtml', i: 2, n: 10 }, { p: 'OEBPS/Text/cap2.xhtml', i: 3, n: 4 }] }
@@ -54,6 +54,37 @@ Deno.test('only a status changed on the device counts', () => {
   assertEquals(statusChange('Reading', 'Reading', 'finished', true), null)   // finished elsewhere: reading on doesn't undo it
   assertEquals(statusChange('Finished', 'Reading', 'finished'), 'reading')   // taken up again on the device
   assertEquals(statusChange('ReadyToRead', 'Reading', 'finished'), null)     // finished elsewhere, then opened here
+})
+
+Deno.test('a status Atril told the device does not come back as a change made there', () => {
+  // "Por leer" set in Atril; the device takes it and says so at its next sync,
+  // when the book is "Leyendo" again elsewhere: nothing changes.
+  assertEquals(statusChange('Reading', 'ReadyToRead', 'reading', false, ['ReadyToRead']), null)
+  assertEquals(statusChange('Reading', 'Finished', 'reading', false, ['Finished']), null)
+  assertEquals(statusChange('ReadyToRead', 'Reading', 'to_read', true, ['Reading']), 'reading')  // reading on there still counts
+  assertEquals(statusChange('Reading', 'ReadyToRead', 'reading', false, ['Finished']), 'to_read')  // not told: made there
+  // What it was told: only a status other than the one it last reported.
+  assertEquals(tell([], 'Reading', 'ReadyToRead'), ['ReadyToRead'])
+  assertEquals(tell([], 'Reading', 'Reading'), [])
+  assertEquals(tell(['ReadyToRead'], 'Reading', 'ReadyToRead'), ['ReadyToRead'])
+  assertEquals(tell(['ReadyToRead', 'Reading'], 'Finished', 'ReadyToRead'), ['Reading', 'ReadyToRead'])
+  assertEquals(tell(['ReadyToRead'], 'Reading', 'Reading'), ['ReadyToRead'])  // its own status: a report may still carry RTR
+  // And after each report.
+  assertEquals(toldAfter(['ReadyToRead'], 'Reading', 'Reading'), ['ReadyToRead'])  // made before it was told
+  assertEquals(toldAfter(['ReadyToRead'], 'Reading', 'Reading', true), [])         // made after: it didn't take it
+  assertEquals(toldAfter(['ReadyToRead'], 'Reading', 'ReadyToRead', true), [])      // took it
+  assertEquals(toldAfter(['ReadyToRead', 'Reading'], 'Finished', 'ReadyToRead'), ['Reading'])
+  assertEquals(toldAfter(['ReadyToRead'], 'Reading', 'Finished'), [])               // a change of its own
+  assertEquals(toldAfter(['ReadyToRead'], 'Reading', undefined, true), ['ReadyToRead'])
+})
+
+Deno.test('a book starts at its first sentence of text', () => {
+  const m: Manifest = { v: 1, lang: 'es', sections: [
+    { i: 0, label: 'Cubierta', sentences: [] },
+    { i: 2, label: '', sentences: [{ c: 'epubcfi(/6/6!/4/2/1:0)', t: 'Uno.' }, { c: 'x', t: 'Dos.' }] },
+  ] }
+  assertEquals(startOf(m), { section: 2, sentence: 0, cfi: 'epubcfi(/6/6!/4/2/1:0)' })
+  assertEquals(startOf({ v: 1, lang: 'es', sections: [{ i: 0, label: '', sentences: [] }] }), null)
 })
 
 Deno.test('a device that missed progress elsewhere does not take everyone back', () => {

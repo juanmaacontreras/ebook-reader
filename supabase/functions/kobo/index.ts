@@ -24,8 +24,8 @@
 
 import {
   type AtrilBook, type AtrilPosition, deviceTime, entitlement, type KepubMap, type KoboState, type Manifest,
-  metadata, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, START, statusChange,
-  type SyncCursor, takesPlace, wordsBetween, writeCursor,
+  metadata, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, START, startOf, statusChange,
+  type SyncCursor, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
 const URL_BASE = Deno.env.get('SUPABASE_URL')!
@@ -121,7 +121,10 @@ async function bookOf(dev: Device, id: string): Promise<BookRow | null> {
   return rows[0] ?? null
 }
 
-type KoboBook = { book_id: string; removed: boolean; state: KoboState | null; state_at: string | null; confirmed_at: string | null }
+type KoboBook = {
+  book_id: string; removed: boolean; state: KoboState | null; state_at: string | null; confirmed_at: string | null
+  told: string[]; told_at: string | null
+}
 
 // The device showed it has the book: later syncs send it as changed, not new.
 async function confirm(dev: Device, book: string): Promise<void> {
@@ -133,8 +136,23 @@ async function confirm(dev: Device, book: string): Promise<void> {
 
 async function koboBooks(dev: Device, ids: string[]): Promise<Map<string, KoboBook>> {
   if (!ids.length) return new Map()
-  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
+  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at,told,told_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
   return new Map(rows.map(r => [r.book_id, r]))
+}
+
+// Reading states handed to the device: remember the statuses it was told, so
+// they don't come back as changes made on it (logic.ts, statusChange). One
+// write for all of them, only when something changed (a status changed in
+// Atril since the device's last report: rare).
+function told(dev: Device, handed: { known: KoboBook | undefined; state: KoboState }[]): Promise<unknown> {
+  const rows = handed.flatMap(({ known, state }) => {
+    const status = state.StatusInfo?.Status
+    const before = known?.told ?? []
+    const after = status ? tell(before, known?.state?.StatusInfo?.Status, status) : before
+    return after === before ? [] : [{ device_id: dev.id, book_id: state.EntitlementId as string, told: after, told_at: new Date().toISOString() }]
+  })
+  if (!rows.length) return Promise.resolve()
+  return rest('kobo_books?on_conflict=device_id,book_id', { method: 'POST', prefer: 'resolution=merge-duplicates', body: JSON.stringify(rows) })
 }
 
 async function positionsOf(dev: Device, ids: string[]): Promise<Map<string, AtrilPosition & { book_id: string }>> {
@@ -219,6 +237,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   ])
   const size = new Map(sizes.map(s => [s.book_id, s.bytes]))
   const sent: string[] = []
+  const handed: { known: KoboBook | undefined; state: KoboState }[] = []
   const inEntitlements = new Set<string>()
   for (const [k, b] of books.entries()) {
     const known = kb.get(b.id)
@@ -228,6 +247,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
     out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null), ReadingState: state } })
     inEntitlements.add(b.id)
     if (!known) sent.push(b.id)
+    handed.push({ known, state })
   }
   if (books.length) cursor.books = books[books.length - 1].synced_at
   if (sent.length) {
@@ -257,10 +277,13 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
       const known = has.get(p.book_id)
       const book = byId.get(p.book_id)
       if (!known || known.removed || !book) continue
-      out.push({ ChangedReadingState: { ReadingState: readingState(book, p, maps[k], { state: known.state, device: dev.tag }) } })
+      const state = readingState(book, p, maps[k], { state: known.state, device: dev.tag })
+      out.push({ ChangedReadingState: { ReadingState: state } })
+      handed.push({ known, state })
     }
   }
   if (moved.length) cursor.positions = moved[moved.length - 1].synced_at
+  await told(dev, handed).catch(e => console.error('kobo: told', e))
 
   const extra: Record<string, string> = { 'x-kobo-synctoken': writeCursor(cursor) }
   if (more) extra['x-kobo-sync'] = 'continue'
@@ -307,31 +330,28 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   const from = map && previous ? placeFromKobo(map, previous.CurrentBookmark?.Location) : null
   const when = deviceTime(incoming.CurrentBookmark?.LastModified, now) ?? deviceTime(incoming.LastModified, now) ?? now
 
-  // Place: only a real move (not the same place reported again on open/close),
-  // and never back past a newer place this device hadn't reached (takesPlace).
   const moved = !!to && !samePlace(previous, incoming)
   const current = places.get(id) ?? null
-  if (to && moved && !takesPlace(to, from, current, dev.tag)) notes.push(`behind ${current?.section}.${current?.sentence}: kept`)
-  else if (to && moved) {
-    const cfi = text?.sections.find(s => s.i === to.section)?.sentences[to.sentence]?.c
-    if (cfi) {
-      const pct = Number(incoming.CurrentBookmark?.ProgressPercent)
-      writes.push(rest('positions?on_conflict=book_id', {
-        method: 'POST', prefer: 'resolution=merge-duplicates',
-        body: JSON.stringify({
-          book_id: id, user_id: dev.user_id, cfi, section: to.section, sentence: to.sentence,
-          fraction: Number.isFinite(pct) ? Math.min(Math.max(pct / 100, 0), 1) : null,
-          device: dev.tag, updated_at: when.toISOString(), base: null,
-        }),
-      }))
-      notes.push(`place ${to.section}.${to.sentence}`)
-    }
-  }
+  const place = (p: { section: number; sentence: number; cfi: string }, fraction: number | null, at: Date) =>
+    writes.push(rest('positions?on_conflict=book_id', {
+      method: 'POST', prefer: 'resolution=merge-duplicates',
+      body: JSON.stringify({
+        book_id: id, user_id: dev.user_id, cfi: p.cfi, section: p.section, sentence: p.sentence, fraction,
+        device: dev.tag, updated_at: at.toISOString(), base: null,
+      }),
+    }))
 
-  // Status: only a change made on the device.
-  const status = statusChange(previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, book.status, moved)
+  // Status: only a change made on the device, not one Atril told it (`told`).
+  // Its time is when it was made there: a status changed in the device's
+  // library reaches here at its next sync.
+  const told = known?.told ?? []
+  const status = statusChange(previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, book.status, moved, told)
   const decided = deviceTime(incoming.StatusInfo?.LastModified, now) ?? now
-  if (status && decided.toISOString() > book.updated_at) {
+  // "Por leer" takes the book back to its start, as in the apps (user
+  // decision 2026-11-02); not over reading done on another device after it.
+  const newerElsewhere = !!current && current.device !== dev.tag && Date.parse(current.updated_at) > decided.getTime()
+  const applies = !!status && decided.toISOString() > book.updated_at && !(status === 'to_read' && newerElsewhere)
+  if (status && applies) {
     writes.push(rest(`books?id=eq.${id}&user_id=eq.${dev.user_id}`, {
       method: 'PATCH',
       body: JSON.stringify({
@@ -340,6 +360,23 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
       }),
     }))
     notes.push(`status ${status}`)
+  } else if (status) notes.push(`status ${status}: older, kept`)
+  const start = status === 'to_read' && applies && text ? startOf(text) : null
+
+  // Place: from the start after "Por leer"; else only a real move (not the
+  // same place reported again on open/close), and never back past a newer
+  // place this device hadn't reached (takesPlace).
+  if (start) {
+    place(start, 0, decided)
+    notes.push(`place ${start.section}.0 (from the start)`)
+  } else if (to && moved && !takesPlace(to, from, current, dev.tag)) notes.push(`behind ${current?.section}.${current?.sentence}: kept`)
+  else if (to && moved) {
+    const cfi = text?.sections.find(s => s.i === to.section)?.sentences[to.sentence]?.c
+    if (cfi) {
+      const pct = Number(incoming.CurrentBookmark?.ProgressPercent)
+      place({ ...to, cfi }, Number.isFinite(pct) ? Math.min(Math.max(pct / 100, 0), 1) : null, when)
+      notes.push(`place ${to.section}.${to.sentence}`)
+    }
   }
 
   // Reading time: the minutes the device added since its last report.
@@ -360,9 +397,17 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
     notes.push(`+${delta} min, ${words} words`)
   }
 
+  // What it was told and has now reported is done; `told` is written only
+  // when that changes (a state handed out meanwhile must not be overwritten).
+  // A report made after it was told (10 s for the clocks) without it: dropped.
+  const fresh = applies || !known?.told_at || decided.getTime() > Date.parse(known.told_at) + 10_000
+  const left = toldAfter(told, previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, fresh)
   writes.push(rest('kobo_books?on_conflict=device_id,book_id', {
     method: 'POST', prefer: 'resolution=merge-duplicates',
-    body: JSON.stringify({ device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString(), confirmed_at: now.toISOString() }),
+    body: JSON.stringify({
+      device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString(), confirmed_at: now.toISOString(),
+      ...(left === told ? {} : { told: left }),
+    }),
   }))
   await Promise.all(writes)
   return { res: taken(id), note: notes.join('; ') || 'no change', body: sent }
@@ -425,8 +470,10 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     const known = kb.get(id)
     const pos = places.get(id)
     const state = readingState(book, pos ?? null, map, { state: known?.state ?? null, device: dev.tag })
+    await told(dev, [{ known, state }]).catch(e => console.error('kobo: told', e))
     const loc = state.CurrentBookmark?.Location
-    return { res: json([state]), note: loc ? `sent ${loc.Value} in ${loc.Source} (from ${pos?.device ?? '?'})` : 'sent no place' }
+    const status = state.StatusInfo?.Status !== known?.state?.StatusInfo?.Status ? `, ${state.StatusInfo?.Status}` : ''
+    return { res: json([state]), note: (loc ? `sent ${loc.Value} in ${loc.Source} (from ${pos?.device ?? '?'})` : 'sent no place') + status }
   }
   if (path.startsWith('v1/library/tags')) {
     // Collections stay on the device; acknowledge so it doesn't retry.
