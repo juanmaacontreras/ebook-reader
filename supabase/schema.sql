@@ -281,9 +281,10 @@ create table if not exists public.kobo_devices (
   created_at timestamptz not null default now(),
   last_seen timestamptz
 );
--- A first version (2026-11-02, never merged) keyed devices by token_hash; it
--- also left kobo_states / kobo_events (unused now, kobo_books / kobo_log
--- replace them; drop them once the user agrees).
+-- A first version (2026-11-02, never merged) keyed devices by token_hash,
+-- which is still the primary key of the live table (id: unique index). Its
+-- kobo_states / kobo_events tables and kobo_trim_events() were dropped the
+-- same day (kobo_books / kobo_log replace them).
 alter table public.kobo_devices add column if not exists id uuid not null default gen_random_uuid();
 create unique index if not exists kobo_devices_id on public.kobo_devices (id);
 
