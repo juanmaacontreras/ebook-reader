@@ -522,8 +522,12 @@ screens and bottom sheets on phones. The reading surface has its own themes
   7.320); the old function took it. Possible fix: count a state GET that
   answered a newer place as "the device showed its dialog" (after that, any
   move counts). Safe only if the Kobo shows the dialog on that GET: on waking
-  with a book open it does (user, same night); whether it also does on the
-  periodic GETs while awake with the book open (~every 30–60 s) was asked.
+  with a book open it does (user, same night); on the periodic GETs while
+  awake with the book open (~every 30–60 s) it shows nothing (user tested,
+  23:30 the same night), so "a GET answered it" does not mean "the user saw
+  it": counting those would let an awake Kobo read on from an old place and
+  take the others back. **Left as is, the user's call** ("No es algo que me
+  moleste eso igual"): the gap only leaves the others ahead.
 - 2026-11-02 (later that night), **tested on the real devices**: going back on
   the phone took the Kobo back (its dialog, then the jump), but going back on
   the Kobo didn't reach the phone: the Kobo was *ahead* (17.142) when the phone
