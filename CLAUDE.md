@@ -504,6 +504,19 @@ screens and bottom sheets on phones. The reading surface has its own themes
   Still to see on the real Kobo: whether it jumps *back* to a place behind its
   own ("parece que estuviste leyendo en otro dispositivo" was only seen going
   forward), and whether it shows a status set in Atril (after "Sincronizar").
+  **Known gap (kobo_log, same night):** the Kobo reports nothing when the user
+  accepts its own "reading on another device" jump, and nothing in its reports
+  says whether it took Atril's place (every timestamp in a PUT is the report's
+  time; it never echoes ours). So a move back made on the Kobo right after
+  accepting (before its next report, ~1 min), or after declining, stays `kept`
+  until the Kobo passes the other device's place: the others then open *ahead*
+  of the real place, never behind. It happened for real at 20:05–20:06 local
+  (accepted 8.66 from the PC, went back to 7.320); the old function took it.
+  Possible fix: count the first state GET after an idle gap that answered a
+  newer place as "the device showed its dialog" (after that, any move counts).
+  Safe only if the Kobo GETs, and shows the dialog, on waking with a book open
+  (else that GET may be a periodic one while it was already being read). To
+  test: sleep with a book open, move ahead on the phone, wake the Kobo.
 
 ## Current state (2026-10-21)
 
