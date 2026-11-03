@@ -79,6 +79,8 @@ tts-worker/               narration worker for the PC (Python 3.12, uv)
   worker/narrate.py       chapter → audio + sentence timings (chunk cache, QC retries)
   worker/text.py          cleanup, long-sentence splitting, chunk grouping (stdlib only, tested in CI)
   worker/asr.py           faster-whisper round trip: QC + sentence starts inside a chunk
+  worker/align.py         manifest sentences ↔ Whisper words of an external narration (stdlib, tested in CI)
+  import_audio.py         attach audio made elsewhere (resumidor's XTTS mp3s) to a book: transcribe, align, upload
   worker/audio.py         trimming, pauses, Ogg Opus 32 kbps mono (PyAV)
   worker/engines/         kokoro_engine.py, chatterbox_engine.py (+ registry in __init__.py)
   worker/supa.py          Supabase Auth/PostgREST/Storage client (signs in as the user)
@@ -543,6 +545,15 @@ screens and bottom sheets on phones. The reading surface has its own themes
   `leftBehind` in `data/places.ts`). Function deployed the same night.
   Also found: the phone at the cover (no text) sent the Kobo its own place
   back; now the nearest text (`placeForKobo`).
+
+- 2026-11-03: **external narration attached to a book** (`import_audio.py`).
+  First case: resumidor's Seguridad e Higiene EPUB (guion text + summary as
+  images, built by `resumidor/audiolibro/tools/epub.py`) with its existing XTTS
+  mp3s as the narration, voice id `xtts:tomas`. The narration row is 'ready'
+  with no `started_at`, so it is never a job: the worker leaves it alone, and a
+  "Generar ahora" with another voice replaces it as usual. Whisper runs on the
+  CPU (int8 small, ~1 min per 8 min of audio); the worker's session file is
+  shared, so the service is stopped while the tool runs (rotating refresh token).
 
 ## Current state (2026-10-21)
 
