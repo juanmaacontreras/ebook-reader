@@ -528,6 +528,11 @@ screens and bottom sheets on phones. The reading surface has its own themes
   it": counting those would let an awake Kobo read on from an old place and
   take the others back. **Left as is, the user's call** ("No es algo que me
   moleste eso igual"): the gap only leaves the others ahead.
+  Also seen (user, same night): right after the power button (cover open)
+  the Kobo still gets a newer place and shows its dialog on the sleep
+  screen, ready when picked up; behind a closed cover it likely does the
+  same, unseen. Not seen yet: whether a dialog left waiting while the other
+  device read on for a long time offers the latest place or the older one.
 - 2026-11-02 (later that night), **tested on the real devices**: going back on
   the phone took the Kobo back (its dialog, then the jump), but going back on
   the Kobo didn't reach the phone: the Kobo was *ahead* (17.142) when the phone
