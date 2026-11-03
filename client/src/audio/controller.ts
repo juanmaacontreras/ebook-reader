@@ -149,7 +149,9 @@ export class NarrationController {
   private bindEngine() {
     if (this.bound || !this.eng) return
     this.bound = true
-    this.eng.on('state', s => { this.setPlaying(s.playing); this.tick(s.index, s.time) })
+    // The sentence before the playing state: when the voice stops, the reader
+    // pushes the place at once (reader.ts), and it must be the last one spoken.
+    this.eng.on('state', s => { this.tick(s.index, s.time); this.setPlaying(s.playing) })
     this.eng.on('track', i => { this.lastSentence = -1; void this.fillAhead(); this.tick(i, 0) })
     this.eng.on('ended', () => void this.onEnded())
     this.eng.on('error', (i, message) => void this.onError(i, message))
@@ -219,8 +221,8 @@ export class NarrationController {
   private async pollState() {
     if (!this.eng) return
     const s = await this.eng.state()
-    this.setPlaying(s.playing)
     this.tick(s.index, s.time)
+    this.setPlaying(s.playing)
   }
 
   private tick(index: number, time: number) {

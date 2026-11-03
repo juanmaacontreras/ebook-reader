@@ -8,7 +8,7 @@ import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentenc
 import { local, remote } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
 import { habitualPace, langOf, SessionTracker, wordIndex } from '../data/sessions'
-import { onChange } from '../data/sync'
+import { flush, onChange } from '../data/sync'
 import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
 import { setBarsDark } from '../platform/theme'
@@ -34,6 +34,9 @@ const TAP_MS = 450
 export async function readerScreen(root: HTMLElement, bookId: string, goBack: () => void): Promise<() => void> {
   const book = await books.get(bookId)
   if (!book) { goBack(); return () => {} }
+  // Where to open: asked to the server now, while the book loads (another device
+  // may have moved on since the last sync).
+  const freshPos = positions.fresh(bookId)
 
   // ---- Shell ---------------------------------------------------------------
   const titleEl = h('b', book.title)
@@ -115,11 +118,11 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   let audioDriven = false
   let lastSaved = ''
   let lastPos: { section: number; sentence: number } | null = null
-  const savePosition = (section: number, sentence: number, cfi: string) => {
+  const savePosition = (section: number, sentence: number, cfi: string, how: 'read' | 'listen' = 'read') => {
     lastPos = { section, sentence }
     if (cfi === lastSaved) return
     lastSaved = cfi
-    void positions.save({ book_id: book.id, cfi, section, sentence, fraction: lastLoc?.fraction ?? null })
+    void positions.save({ book_id: book.id, cfi, section, sentence, fraction: lastLoc?.fraction ?? null }, how)
   }
 
   view.addEventListener('relocate', ((e: CustomEvent<Location>) => {
@@ -310,7 +313,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   const followSentence = async (section: number, i: number, cfi: string) => {
     audioDriven = true
-    savePosition(section, i, cfi)
+    savePosition(section, i, cfi, 'listen')
     void tracker.activity('listen', { section, sentence: i })
     if (ttsCfi) await view.deleteAnnotation({ value: ttsCfi })
     ttsCfi = cfi
@@ -332,7 +335,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     narr = await new NarrationController(book, manifest, {
       sentence: (s, i, cfi) => void followSentence(s, i, cfi),
       status: (m, busy) => player?.setStatus(m, busy),
-      playing: p => { player?.setPlaying(p); shell.classList.toggle('playing', p) },
+      // The voice stopped (here, the notification, headphones): its place goes now.
+      playing: p => { player?.setPlaying(p); shell.classList.toggle('playing', p); if (!p) void flush() },
       time: (s, time, dur) => { player?.setTime(s, time, dur); if (narr?.playing) void tracker.activity('listen') },
       // Phone/tablet: the chapter has no audio and can't be requested from here:
       // a short message and the player closes (option B, picked 2026-10-22).
@@ -387,20 +391,26 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const showToc = () => openToc(view, narr, chapterEl.textContent ?? '', href => void view.goTo(href))
 
   // ---- Remote position (another device) ---------------------------------------
-  const offChange = onChange(async changed => {
-    if (changed.has('highlights')) void loadHighlights()
-    if (changed.has('positions')) {
-      const p = await positions.get(book.id)
-      if (p && p.device !== me && p.cfi !== lastSaved && !(narr?.playing)) {
-        toast(t.continueOther, { label: t.goThere, run: () => { lastSaved = p.cfi; void view.goTo(p.cfi) } }, 6000)
-      }
+  // Offered once the book is open: a place that arrives while it opens is the
+  // one it opens at (or, if it came too late for that, offered right after).
+  let opened = false
+  const offerRemote = async () => {
+    const p = await positions.get(book.id)
+    if (opened && p && p.device !== me && p.cfi !== lastSaved && !(narr?.playing)) {
+      toast(t.continueOther, { label: t.goThere, run: () => { lastSaved = p.cfi; void view.goTo(p.cfi) } }, 6000)
     }
+  }
+  const offChange = onChange(changed => {
+    if (changed.has('highlights')) void loadHighlights()
+    if (changed.has('positions')) void offerRemote()
   })
 
   // ---- Open at the saved position ------------------------------------------------
-  const pos = await positions.get(book.id)
-  await view.init({ lastLocation: pos?.cfi, showTextStart: !pos })
+  const pos = await freshPos
   if (pos) lastSaved = pos.cfi
+  await view.init({ lastLocation: pos?.cfi, showTextStart: !pos })
+  opened = true
+  void offerRemote()
   await loadHighlights()
   const jump = sessionStorage.getItem('jump')
   if (jump) { sessionStorage.removeItem('jump'); await view.goTo(jump) }
@@ -412,7 +422,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
 
   return () => {
     allowSleep()
-    void tracker.close()
+    void tracker.close().then(() => flush())
     document.removeEventListener('visibilitychange', onHidden)
     offPrefs()
     offChange()

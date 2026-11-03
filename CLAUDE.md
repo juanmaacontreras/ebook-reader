@@ -87,6 +87,8 @@ supabase/schema.sql       full schema, idempotent (tables, RLS, triggers, bucket
 supabase/functions/kobo/  Edge Function: Atril as a Kobo's store (index.ts I/O, logic.ts pure + logic_test.ts)
 tools/screenshots.py      renders the real app in headless Chromium (design proposals)
 tools/kobo_e2e.py         Kobo sync end to end against the real backend (temporary account, cleaned up)
+tools/sync_e2e.py         device-to-device sync timing (two headless devices + a simulated Kobo), real backend
+tools/e2e_common.py       shared by both: temporary account, HTTP/SQL helpers, signing the app in
 .github/workflows/        build.yml (test → APK + AppImage + NSIS → Release on main), keepalive.yml
 ```
 
@@ -123,11 +125,31 @@ IndexedDB with `_dirty`, then is pushed. Pull is incremental by the
 server-side `synced_at` (set by trigger), never by client clocks — an edit made
 offline arrives later with an old `updated_at`. Conflicts: last writer wins by
 client `updated_at`, enforced on the server by the `lww_guard` trigger (an
-older UPDATE is silently dropped). Realtime (postgres_changes on all tables)
-triggers an incremental pull within ~1 s; also on focus, on reconnect, every 5
-min. Deleted chapters are learned from `deleted_chapters` (a pull can't see a
-deleted row). Books imported offline keep `_upload` until their files are in
-Storage.
+older UPDATE is silently dropped). Deleted chapters are learned from
+`deleted_chapters` (a pull can't see a deleted row). Books imported offline keep
+`_upload` until their files are in Storage.
+Timing (measured with `tools/sync_e2e.py`, 2026-11-02): a local change is
+pushed at once (`pushSoon`), only that push, no pulls; a book row, an upload or
+a removal take the full sync (removals from elsewhere are pulled first), and so
+does a foreign-key error (a book removed meanwhile). While listening the place
+goes every 10 s, and at once when the voice stops (`flush`, reader.ts; the
+controller emits the sentence before the playing state). Leaving the app
+(hidden, Android pause, pagehide) flushes at once and the flush waits for local
+writes still in flight (`localWrite`): a phone may freeze a background app
+within seconds — before this, a place turned at 16:16 reached the server at
+18:03. A Realtime event pulls just its table (books → + deleted_books, chapters
+→ + deleted_chapters; our own position echo is skipped); every (re)subscription
+catches up with a pull of everything. Full syncs: start, coming back, `online`,
+after a failure (backoff 4 s → 1 min), and `safetySync` every 30 s while
+Realtime is down (else 5 min). Pulls run all tables in parallel; pushes do books
+first, then the rest in parallel. Deadlines only move earlier (`Later`): a lazy
+request can't postpone an urgent one (it did: a session save's 5 s delayed a
+position). Realtime may die without a word (a phone switching networks): a
+heartbeat every 15 s (default 25), a new connection on `online`, and the
+positions alone pulled every minute while visible (Realtime doesn't promise
+delivery). Opening a book asks the server for its place first
+(`positions.fresh`, ≤1.5 s, overlapped with loading the book) so it opens where
+another device left it; the "Ir" offer is only for places that arrive after.
 
 **Narration rows have two owners** (`narrations`): the app owns `voice`,
 `status` (active/paused), `start_section`, `priority_section`, `updated_at`;
@@ -432,6 +454,20 @@ screens and bottom sheets on phones. The reading surface has its own themes
   **Result the same evening: met with no add-on** — the Kobo asks for a book's
   state each time it is opened and reports its place while reading (see "Kobo").
 
+- 2026-11-02: **sync between devices made as fast as possible** (user: "lo más
+  más más posible"). Measured against the real backend with
+  `tools/sync_e2e.py` (two headless devices + a simulated Kobo, medians), before
+  → after: a page turned on one device reaches the server 3.3 s → 0.25 s and
+  the other open device 3.9 s → 0.34 s; a page turned right before leaving the
+  app: lost (until the app came back; seen for real: 16:16 → 18:03) → 0.25 s;
+  catching up after reconnecting 0.3 s (max 3.9 s) → 0.16 s (max 0.2 s);
+  opening a book right after reconnecting: old place + "Ir" → the right place;
+  Kobo report → open device 1.4 s → 0.85 s; device → Kobo (what the Kobo gets
+  on opening the book) 3.5 s → 0.45 s. Kobo function server time (kobo_log.ms):
+  GET state ~150 ms, PUT ~250 ms. How: see "Sync" under Architecture. Nothing
+  visible changed. Still open: highlights from the Kobo, and whether the Kobo
+  asks for the place on waking with a book open (to check in `kobo_log`).
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
@@ -457,8 +493,10 @@ Not verified yet / to watch:
   use Media3 `setMediaButtonPreferences` (1.6+ API).
 - WebKitGTK (Linux desktop) playing Ogg Opus depends on GStreamer plugins
   (the AppImage bundles the media framework).
-- Position push while listening with the screen off relies on the WebView
-  still receiving plugin events; worst case it's pushed when the app resumes.
+- Position push while listening with the screen off: the voice stopping (a
+  native `state` event) pushes at once; meanwhile the 10 s cadence runs on
+  timers a hidden WebView may slow down (Capacitor keeps timers running:
+  `KeepRunning` defaults to true).
 - Chatterbox's first chapter takes ~2.5× its length to generate; Kokoro ~1 min.
 
 ## App gotchas
@@ -550,8 +588,12 @@ allow-list entry.
   away. Opening a book makes it `GET .../state`; if Atril's place is newer it
   shows its own "looks like you've been reading on another device" dialog and
   jumps to that exact span (PC → Kobo checked at sentence level: kobo.67.1 sent,
-  that page shown). While reading it `PUT`s its place every page or so (Kobo →
-  Atril within seconds), plus on closing. So switching devices needs no tap;
+  that page shown). Its log of the same evening, read closely: it `PUT`s its
+  place on closing the book and, while reading, about once a minute (when its
+  reading-minutes counter moves), not every page; each arrives ~2 s after the
+  bookmark's own time. It `GET`s the state on opening a book and about once a
+  minute while one is open (whether it also does on waking with a book open is
+  not confirmed). So switching devices needs no tap;
   only library changes (new/removed books) wait for a sync (manual, or its
   "Automatic sync" schedule). A device may lose a sync's answer (it refreshed its
   resources and synced again); books therefore go as *new* until the device
@@ -559,7 +601,10 @@ allow-list entry.
   ignores a *changed* entry for a book it never stored. Store sections on its
   home screen (deals, featured) come here too and get `{}`: they show empty.
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
-  bodies as sent, and the place sent back on `GET state`; two weeks). Never call
+  bodies as sent, the place sent back on `GET state`, `ms` to answer; two
+  weeks). Each request reads what it needs in one round of parallel queries,
+  then writes in one (the function reaches PostgREST through the public URL,
+  ~50–100 ms a round trip; it runs in sa-east-1 like the database). Never call
   the function with the real device's token for checks: a download counts as the
   device confirming the book. Cloudflare in front of Supabase caches `*.jpg`
   answers for minutes, a 404 too.

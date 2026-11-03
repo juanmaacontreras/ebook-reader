@@ -16,7 +16,11 @@
 // Deployed with verify_jwt off (the device sends no Supabase token); the token
 // in the path is the credential, kept hashed in kobo_devices. This is the one
 // place that uses the service role: every query below is limited to the
-// token's user. Requests are logged in kobo_log (no token, no body).
+// token's user. Requests are logged in kobo_log (no token; reading-state bodies
+// as sent; the time to answer, ms).
+//
+// Speed: every request reads what it needs in one go (parallel queries), then
+// writes in one go; a device's own lookups are cached in the instance.
 
 import {
   type AtrilBook, type AtrilPosition, deviceTime, entitlement, type KepubMap, type KoboState, type Manifest,
@@ -97,9 +101,10 @@ async function sha256(s: string): Promise<string> {
   return Array.from(new Uint8Array(d), b => b.toString(16).padStart(2, '0')).join('')
 }
 
+// Five minutes: a removed device (its row deleted) stops working within that.
 async function deviceFor(token: string): Promise<Device | null> {
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return null
-  return cached(`dev:${token}`, 60_000, async () => {
+  return cached(`dev:${token}`, 5 * 60_000, async () => {
     const rows = await rest<{ id: string; user_id: string }[]>(`kobo_devices?select=id,user_id&token_hash=eq.${await sha256(token)}`)
     return rows[0] ? { ...rows[0], tag: `kobo:${rows[0].id.slice(0, 8)}` } : null
   })
@@ -108,8 +113,10 @@ async function deviceFor(token: string): Promise<Device | null> {
 const BOOK_COLUMNS = 'id,title,author,language,status,added_at,finished_at,updated_at,synced_at,kepub_path'
 type BookRow = AtrilBook & { synced_at: string; kepub_path: string | null }
 
+const UUID = /^[0-9a-f-]{36}$/i
+
 async function bookOf(dev: Device, id: string): Promise<BookRow | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null
+  if (!UUID.test(id)) return null
   const rows = await rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&id=eq.${id}&user_id=eq.${dev.user_id}&kepub_path=not.is.null`)
   return rows[0] ?? null
 }
@@ -194,22 +201,29 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   const out: KoboState[] = []
   let more = false
 
+  // The three feeds at once: books, removals, places.
+  const [books, deleted, moved] = await Promise.all([
+    rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&user_id=eq.${dev.user_id}&kepub_path=not.is.null&synced_at=gt.${q(cursor.books)}&order=synced_at&limit=${LIMIT}`),
+    rest<{ book_id: string; synced_at: string }[]>(`deleted_books?select=book_id,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.deleted)}&order=synced_at&limit=${LIMIT}`),
+    rest<(AtrilPosition & { book_id: string; synced_at: string })[]>(`positions?select=book_id,section,sentence,fraction,device,updated_at,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.positions)}&order=synced_at&limit=${LIMIT}`),
+  ])
+
   // 1. Books added or changed (title, status, a KEPUB just built).
-  const books = await rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&user_id=eq.${dev.user_id}&kepub_path=not.is.null&synced_at=gt.${q(cursor.books)}&order=synced_at&limit=${LIMIT}`)
   if (books.length === LIMIT) more = true
   const ids = books.map(b => b.id)
-  const [kb, pos, sizes] = await Promise.all([
+  const [kb, pos, sizes, maps] = await Promise.all([
     koboBooks(dev, ids),
     positionsOf(dev, ids),
     ids.length ? rest<{ book_id: string; bytes: number }[]>('rpc/kobo_kepub_sizes', { method: 'POST', body: JSON.stringify({ uid: dev.user_id }) }) : Promise.resolve([]),
+    Promise.all(ids.map(id => kepubMap(dev.user_id, id))),
   ])
   const size = new Map(sizes.map(s => [s.book_id, s.bytes]))
   const sent: string[] = []
   const inEntitlements = new Set<string>()
-  for (const b of books) {
+  for (const [k, b] of books.entries()) {
     const known = kb.get(b.id)
     if (known?.removed) continue
-    const map = await kepubMap(dev.user_id, b.id)
+    const map = maps[k]
     const state = readingState(b, pos.get(b.id) ?? null, map, { state: known?.state ?? null, device: dev.tag })
     out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null), ReadingState: state } })
     inEntitlements.add(b.id)
@@ -224,24 +238,26 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   }
 
   // 2. Books removed from the library (a first sync has nothing to remove).
-  const deleted = await rest<{ book_id: string; synced_at: string }[]>(`deleted_books?select=book_id,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.deleted)}&order=synced_at&limit=${LIMIT}`)
   if (deleted.length === LIMIT) more = true
   if (!fresh) for (const d of deleted) out.push(removedEntitlement(d.book_id, d.synced_at))
   if (deleted.length) cursor.deleted = deleted[deleted.length - 1].synced_at
 
   // 3. Places that changed elsewhere (a phone, the PC) in books the Kobo has.
-  const moved = await rest<(AtrilPosition & { book_id: string; synced_at: string })[]>(`positions?select=book_id,section,sentence,fraction,device,updated_at,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.positions)}&order=synced_at&limit=${LIMIT}`)
   if (moved.length === LIMIT) more = true
   const others = moved.filter(p => p.device !== dev.tag && !inEntitlements.has(p.book_id))
   if (others.length && !fresh) {
-    const has = await koboBooks(dev, others.map(p => p.book_id))
-    for (const p of others) {
+    const ids = others.map(p => p.book_id)
+    const [has, rows, maps] = await Promise.all([
+      koboBooks(dev, ids),
+      rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&id=in.(${ids.join(',')})&user_id=eq.${dev.user_id}&kepub_path=not.is.null`),
+      Promise.all(ids.map(id => kepubMap(dev.user_id, id))),
+    ])
+    const byId = new Map(rows.map(b => [b.id, b]))
+    for (const [k, p] of others.entries()) {
       const known = has.get(p.book_id)
-      if (!known || known.removed) continue
-      const book = await bookOf(dev, p.book_id)
-      if (!book) continue
-      const map = await kepubMap(dev.user_id, book.id)
-      out.push({ ChangedReadingState: { ReadingState: readingState(book, p, map, { state: known.state, device: dev.tag }) } })
+      const book = byId.get(p.book_id)
+      if (!known || known.removed || !book) continue
+      out.push({ ChangedReadingState: { ReadingState: readingState(book, p, maps[k], { state: known.state, device: dev.tag }) } })
     }
   }
   if (moved.length) cursor.positions = moved[moved.length - 1].synced_at
@@ -268,39 +284,41 @@ function taken(id: string): Response {
 type Routed = { res: Response; note?: string; body?: unknown }
 
 async function putState(req: Request, dev: Device, id: string): Promise<Routed> {
-  const book = await bookOf(dev, id)
-  if (!book) return { res: taken(id), note: 'not ours' }  // a store book, or one removed from Atril
+  if (!UUID.test(id)) return { res: taken(id), note: 'not ours' }
+  // Everything this needs, at once (the map and the text are cached).
   // deno-lint-ignore no-explicit-any
-  const body: any = await req.json().catch(() => null)
+  const [book, body, kb, map, text]: [BookRow | null, any, Map<string, KoboBook>, KepubMap | null, Manifest | null] = await Promise.all([
+    bookOf(dev, id), req.json().catch(() => null), koboBooks(dev, [id]), kepubMap(dev.user_id, id), manifest(dev.user_id, id),
+  ])
+  if (!book) return { res: taken(id), note: 'not ours' }  // a store book, or one removed from Atril
   const incoming: KoboState | undefined = body?.ReadingStates?.[0]
   if (!incoming) return { res: json({ error: 'missing ReadingStates' }, 400), body }
   const sent = structuredClone(incoming)
-  const known = (await koboBooks(dev, [id])).get(id)
+  const known = kb.get(id)
   const previous = known?.state ?? null
   // What a report leaves out stays as it was.
   for (const part of ['Statistics', 'CurrentBookmark', 'StatusInfo']) if (!incoming[part] && previous?.[part]) incoming[part] = previous[part]
   const now = new Date()
   const notes: string[] = []
+  const writes: Promise<unknown>[] = []
 
-  const map = await kepubMap(dev.user_id, id)
   const to = map ? placeFromKobo(map, incoming.CurrentBookmark?.Location) : null
   const from = map && previous ? placeFromKobo(map, previous.CurrentBookmark?.Location) : null
   const when = deviceTime(incoming.CurrentBookmark?.LastModified, now) ?? deviceTime(incoming.LastModified, now) ?? now
 
   // Place: only a real move (not the same place reported again on open/close).
   if (to && !samePlace(previous, incoming)) {
-    const m = await manifest(dev.user_id, id)
-    const cfi = m?.sections.find(s => s.i === to.section)?.sentences[to.sentence]?.c
+    const cfi = text?.sections.find(s => s.i === to.section)?.sentences[to.sentence]?.c
     if (cfi) {
       const pct = Number(incoming.CurrentBookmark?.ProgressPercent)
-      await rest('positions?on_conflict=book_id', {
+      writes.push(rest('positions?on_conflict=book_id', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
         body: JSON.stringify({
           book_id: id, user_id: dev.user_id, cfi, section: to.section, sentence: to.sentence,
           fraction: Number.isFinite(pct) ? Math.min(Math.max(pct / 100, 0), 1) : null,
           device: dev.tag, updated_at: when.toISOString(),
         }),
-      })
+      }))
       notes.push(`place ${to.section}.${to.sentence}`)
     }
   }
@@ -309,13 +327,13 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   const status = statusChange(previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, book.status)
   const decided = deviceTime(incoming.StatusInfo?.LastModified, now) ?? now
   if (status && decided.toISOString() > book.updated_at) {
-    await rest(`books?id=eq.${id}&user_id=eq.${dev.user_id}`, {
+    writes.push(rest(`books?id=eq.${id}&user_id=eq.${dev.user_id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         status, updated_at: decided.toISOString(),
         finished_at: status === 'finished' ? decided.toISOString() : status === 'to_read' ? null : book.finished_at,
       }),
-    })
+    }))
     notes.push(`status ${status}`)
   }
 
@@ -324,24 +342,24 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   const before = Number(previous?.Statistics?.SpentReadingMinutes) || 0
   const delta = minutes - before
   if (delta > 0 && delta <= 12 * 60) {
-    const m = to && from ? await manifest(dev.user_id, id) : null
-    let words = m && to && from ? wordsBetween(m, from, to) : 0
+    let words = text && to && from ? wordsBetween(text, from, to) : 0
     if (words > delta * 1000) words = 0  // a jump, not reading
-    await rest('reading_sessions', {
+    writes.push(rest('reading_sessions', {
       method: 'POST',
       body: JSON.stringify({
         id: crypto.randomUUID(), user_id: dev.user_id, book_id: id, kind: 'read', device: dev.tag, device_kind: 'ereader',
         started_at: new Date(when.getTime() - delta * 60_000).toISOString(), ended_at: when.toISOString(),
         seconds: delta * 60, words, pace_words: 0, pace_seconds: 0, updated_at: now.toISOString(),
       }),
-    })
+    }))
     notes.push(`+${delta} min, ${words} words`)
   }
 
-  await rest('kobo_books?on_conflict=device_id,book_id', {
+  writes.push(rest('kobo_books?on_conflict=device_id,book_id', {
     method: 'POST', prefer: 'resolution=merge-duplicates',
     body: JSON.stringify({ device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString(), confirmed_at: now.toISOString() }),
-  })
+  }))
+  await Promise.all(writes)
   return { res: taken(id), note: notes.join('; ') || 'no change', body: sent }
 }
 
@@ -385,17 +403,23 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     return { res, note: `${(await res.clone().json()).length} items${res.headers.get('x-kobo-sync') ? ', continue' : ''}` }
   }
   if ((x = /^v1\/library\/([^/]+)\/metadata$/.exec(path))) {
-    const book = await bookOf(dev, x[1])
+    const [book, sizes] = await Promise.all([
+      bookOf(dev, x[1]),
+      rest<{ book_id: string; bytes: number }[]>('rpc/kobo_kepub_sizes', { method: 'POST', body: JSON.stringify({ uid: dev.user_id }) }),
+    ])
     if (!book) return toKobo(path, url)
-    const sizes = await rest<{ book_id: string; bytes: number }[]>('rpc/kobo_kepub_sizes', { method: 'POST', body: JSON.stringify({ uid: dev.user_id }) })
     return { res: json([metadata(book, base, sizes.find(s => s.book_id === book.id)?.bytes ?? null)]) }
   }
   if ((x = /^v1\/library\/([^/]+)\/state$/.exec(path))) {
     if (m === 'PUT') return await putState(req, dev, x[1])
-    const book = await bookOf(dev, x[1])
+    const id = x[1]
+    if (!UUID.test(id)) return toKobo(path, url)
+    // The device waits for this one (opening a book): all of it at once.
+    const [book, kb, places, map] = await Promise.all([bookOf(dev, id), koboBooks(dev, [id]), positionsOf(dev, [id]), kepubMap(dev.user_id, id)])
     if (!book) return toKobo(path, url)
-    const [known, pos] = [(await koboBooks(dev, [book.id])).get(book.id), (await positionsOf(dev, [book.id])).get(book.id)]
-    const state = readingState(book, pos ?? null, await kepubMap(dev.user_id, book.id), { state: known?.state ?? null, device: dev.tag })
+    const known = kb.get(id)
+    const pos = places.get(id)
+    const state = readingState(book, pos ?? null, map, { state: known?.state ?? null, device: dev.tag })
     const loc = state.CurrentBookmark?.Location
     return { res: json([state]), note: loc ? `sent ${loc.Value} in ${loc.Source} (from ${pos?.device ?? '?'})` : 'sent no place' }
   }
@@ -434,6 +458,7 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
 }
 
 Deno.serve(async (req: Request) => {
+  const t0 = performance.now()
   const url = new URL(req.url)
   const rest_ = url.pathname.split('/kobo/')[1] ?? ''
   const slash = rest_.indexOf('/')
@@ -461,7 +486,10 @@ Deno.serve(async (req: Request) => {
   // The log: never the token (it is in the path's first segment, left out).
   const logged = rest('kobo_log', {
     method: 'POST',
-    body: JSON.stringify({ device_id: dev.id, method: req.method, path: path.slice(0, 200), status: res.status, note: note ?? null, body: body ?? null }),
+    body: JSON.stringify({
+      device_id: dev.id, method: req.method, path: path.slice(0, 200), status: res.status, note: note ?? null, body: body ?? null,
+      ms: Math.round(performance.now() - t0),
+    }),
   }).then(() => rest(`kobo_devices?id=eq.${dev!.id}`, { method: 'PATCH', body: JSON.stringify({ last_seen: new Date().toISOString() }) }))
     .then(() => Math.random() < 0.02 ? rest(`kobo_log?at=lt.${q(new Date(Date.now() - 14 * 864e5).toISOString())}`, { method: 'DELETE' }) : null)
     .catch(e => console.error('kobo: log failed', e))

@@ -1,9 +1,10 @@
 // App-level operations on the local database. Every write marks the row dirty
-// and schedules a sync; screens re-render from onChange() events.
+// and is pushed right away (sync.ts, pushSoon); screens re-render from
+// onChange() events.
 
 import { db, kv } from './db'
 import { audioBucket, local } from './files'
-import { emit, forgetBook, syncSoon } from './sync'
+import { emit, forgetBook, localWrite, pullPosition, pushSoon } from './sync'
 import { demo, supabase } from './supabase'
 import { audioManager } from '../platform'
 import type { Book, BookStatus, Highlight, HighlightColor, Local, Narration, NarrationChapter, NarrationScope, Position, WorkerStatus } from './types'
@@ -27,7 +28,7 @@ export const books = {
     if (!b || b.status === status) return
     await db.put('books', { ...b, status, finished_at: status === 'finished' ? now() : null, updated_at: now(), _dirty: true })
     emit(['books'])
-    syncSoon()
+    pushSoon()
     // Finishing a book doesn't delete audio here: the PC's worker does it a day
     // later (a mistaken "terminado" can be undone meanwhile), and every device
     // drops its copy when the cloud one goes (deleted_chapters, sync.ts).
@@ -37,7 +38,7 @@ export const books = {
     if (!b || (b.title === patch.title && b.author === patch.author)) return
     await db.put('books', { ...b, ...patch, updated_at: now(), _dirty: true })
     emit(['books'])
-    syncSoon()
+    pushSoon()
   },
   // "Sacar de la biblioteca": gone from this device now, from the cloud and the
   // other devices on the next sync (sync.ts, pushDeletedBooks → deleted_books).
@@ -45,18 +46,36 @@ export const books = {
     const pending = (await kv.get<string[]>('pendingBookDeletes')) ?? []
     if (!pending.includes(id)) await kv.set('pendingBookDeletes', [...pending, id])
     await forgetBook(id)
-    syncSoon(200)
+    pushSoon()
   },
 }
 
 export const positions = {
   get: (bookId: string) => db.get<Local<Position>>('positions', bookId),
   all: () => db.all<Local<Position>>('positions'),
-  async save(p: Omit<Position, 'updated_at' | 'device'>): Promise<void> {
-    const cur = await positions.get(p.book_id)
-    if (cur && cur.cfi === p.cfi) return
-    await db.put('positions', { ...p, device: await deviceId(), updated_at: now(), _dirty: true })
-    syncSoon(3000)
+  // Reading: pushed at once (a page turned is where another device should
+  // open). Listening: every 10 s, and at once when the voice stops (reader.ts).
+  save(p: Omit<Position, 'updated_at' | 'device'>, how: 'read' | 'listen' = 'read'): Promise<void> {
+    return localWrite((async () => {
+      const cur = await positions.get(p.book_id)
+      if (cur && cur.cfi === p.cfi) return
+      await db.put('positions', { ...p, device: await deviceId(), updated_at: now(), _dirty: true })
+      pushSoon(how === 'listen' ? 10_000 : 0)
+    })())
+  },
+  // Opening a book: the place on the server too (newest wins), so the book opens
+  // where another device left it without waiting for a sync. Waits at most
+  // `wait` ms; an answer after that still arrives, as a change (the "Ir" offer).
+  // (Not gated on navigator.onLine: it lags behind a reconnection; offline,
+  // the request fails at once.)
+  async fresh(bookId: string, wait = 1500): Promise<Local<Position> | undefined> {
+    if (!demo) {
+      let waiting = true
+      const got = pullPosition(bookId, () => !waiting).catch(() => false)
+      await Promise.race([got, new Promise(r => setTimeout(r, wait))])
+      waiting = false
+    }
+    return positions.get(bookId)
   },
 }
 
@@ -71,7 +90,7 @@ export const highlights = {
     const row: Local<Highlight> = { id: crypto.randomUUID(), note: null, ...h, deleted: false, created_at: now(), updated_at: now(), _dirty: true }
     await db.put('highlights', row)
     emit(['highlights'])
-    syncSoon()
+    pushSoon()
     return row
   },
   async update(id: string, patch: Partial<Pick<Highlight, 'color' | 'note' | 'deleted'>>): Promise<void> {
@@ -79,7 +98,7 @@ export const highlights = {
     if (!cur) return
     await db.put('highlights', { ...cur, ...patch, updated_at: now(), _dirty: true })
     emit(['highlights'])
-    syncSoon()
+    pushSoon()
   },
   remove: (id: string) => highlights.update(id, { deleted: true }),
 }
@@ -123,7 +142,7 @@ export const narration = {
     }
     await db.put('narrations', row)
     emit(['narrations'])
-    syncSoon(200)
+    pushSoon()
   },
   async prioritize(bookId: string, section: number): Promise<void> {
     // Only reorders a job that is running and covers that chapter; never starts one.
@@ -132,7 +151,7 @@ export const narration = {
     if (!jobRunning(cur) || !cur || cur.priority_section === section) return
     await db.put('narrations', { ...cur, priority_section: section, updated_at: now(), _dirty: true })
     emit(['narrations'])
-    syncSoon(200)
+    pushSoon()
   },
   // Move to the front of the PC's queue (it takes the oldest request first).
   async putFirst(bookId: string): Promise<void> {
@@ -142,7 +161,7 @@ export const narration = {
     const first = Math.min(...all.map(n => Date.parse(n.requested_at)))
     await db.put('narrations', { ...cur, requested_at: new Date(first - 1000).toISOString(), updated_at: now(), _dirty: true })
     emit(['narrations'])
-    syncSoon(200)
+    pushSoon()
   },
   // Free the cloud and this device; the row stays (stopped) with its voice.
   async deleteAudio(bookId: string): Promise<void> {
@@ -156,7 +175,7 @@ export const narration = {
     if (!cur || cur.status === 'paused') return
     await db.put('narrations', { ...cur, status: 'paused', updated_at: now(), _dirty: true })
     emit(['narrations'])
-    syncSoon(200)
+    pushSoon()
   },
 }
 
