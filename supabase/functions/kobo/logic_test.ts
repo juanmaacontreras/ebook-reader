@@ -55,7 +55,7 @@ Deno.test('only a status changed on the device counts', () => {
   assertEquals(statusChange('ReadyToRead', 'Reading', 'finished'), null)     // finished elsewhere, then opened here
 })
 
-Deno.test('a device behind the newest place does not take everyone back', () => {
+Deno.test('a device that missed progress elsewhere does not take everyone back', () => {
   const phone = { section: 5, sentence: 10, fraction: 0.5, device: 'phone-1', updated_at: '2026-11-02T10:00:00Z' }
   const at = (section: number, sentence: number) => ({ section, sentence })
   // Picked up before it synced: its previous report was elsewhere.
@@ -65,6 +65,10 @@ Deno.test('a device behind the newest place does not take everyone back', () => 
   assertEquals(takesPlace(at(6, 0), null, phone, 'kobo:1'), true)
   // In sync: it had reached that place, or the newest place is its own.
   assertEquals(takesPlace(at(5, 2), at(5, 10), phone, 'kobo:1'), true)    // went back from there
+  // Past it: the newest place is a move back made elsewhere, nothing it missed.
+  assertEquals(takesPlace(at(3, 0), at(7, 0), phone, 'kobo:1'), true)     // back past it too
+  assertEquals(takesPlace(at(5, 3), at(5, 12), phone, 'kobo:1'), true)
+  assertEquals(takesPlace(at(8, 0), at(7, 0), phone, 'kobo:1'), true)
   assertEquals(takesPlace(at(1, 0), at(4, 0), { ...phone, device: 'kobo:1' }, 'kobo:1'), true)
   assertEquals(takesPlace(at(1, 0), null, null, 'kobo:1'), true)
   assertEquals(takesPlace(at(1, 0), null, { ...phone, section: null, sentence: null }, 'kobo:1'), true)
