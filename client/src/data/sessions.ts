@@ -24,7 +24,7 @@
 import { isAndroid, isTauri } from '../platform'
 import { db } from './db'
 import { deviceId } from './store'
-import { syncSoon } from './sync'
+import { pushSoon } from './sync'
 import type { Book, DeviceKind, Local, Manifest, ReadingSession } from './types'
 
 const GAP_MS = { read: 5 * 60_000, listen: 30_000 }
@@ -162,6 +162,6 @@ export class SessionTracker {
     const r = this.row
     if (!r || r.seconds < 1) return
     await db.put('sessions', { ...r, seconds: Math.round(r.seconds), pace_seconds: Math.round(r.pace_seconds), updated_at: new Date().toISOString(), _dirty: true })
-    syncSoon(5000)
+    pushSoon(5000)
   }
 }

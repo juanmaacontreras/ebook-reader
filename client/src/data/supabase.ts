@@ -9,7 +9,9 @@ export const demo = new URLSearchParams(location.search).has('demo')
 
 export const supabase: SupabaseClient = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_KEY || 'missing', {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'atril-auth' },
-  realtime: { params: { eventsPerSecond: 5 } },
+  // A heartbeat every 15 s (default 25): a connection that died without a word
+  // (a phone switching networks) is noticed, rejoined and caught up sooner.
+  realtime: { params: { eventsPerSecond: 5 }, heartbeatIntervalMs: 15_000 },
 })
 
 // The session saved on this device, even with an expired access token.

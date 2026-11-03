@@ -3,7 +3,7 @@ import './styles/app.css'
 import { App } from '@capacitor/app'
 import { configured, demo, supabase, userId } from './data/supabase'
 import { db } from './data/db'
-import { onChange, startRealtime, stopRealtime, sync } from './data/sync'
+import { flush, onChange, restartRealtime, safetySync, startRealtime, stopRealtime, sync } from './data/sync'
 import { applyUiTheme } from './platform/theme'
 import { checkForUpdate } from './platform/updater'
 import { isAndroid } from './platform'
@@ -59,11 +59,14 @@ async function main(): Promise<void> {
   })
   void checkForUpdate()
 
-  // Sync when coming back to the app, and every 5 minutes as a safety net
-  // (Realtime normally reports changes within a second).
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) void sync() })
-  window.addEventListener('online', () => void sync())
-  setInterval(() => { if (!document.hidden) void sync() }, 5 * 60_000)
+  // Coming back to the app: a full sync. Leaving it: what's pending goes at once
+  // (a phone may freeze a background app within seconds). Realtime brings the
+  // rest within a second; safetySync covers it while it's down.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) void flush(); else void sync() })
+  window.addEventListener('pagehide', () => void flush())
+  // Back online: a new Realtime connection too (the old one may be dead silently).
+  window.addEventListener('online', () => { void sync(); void restartRealtime() })
+  setInterval(() => { if (!document.hidden) safetySync() }, 30_000)
   if (isAndroid) {
     void App.addListener('backButton', ({ canGoBack }) => {
       if (document.querySelector('.overlay')) (document.querySelector('.overlay') as HTMLElement).click()
@@ -71,7 +74,9 @@ async function main(): Promise<void> {
       else if (!canGoBack) void App.exitApp()
       else history.back()
     })
-    void App.addListener('appStateChange', ({ isActive }) => { if (isActive) { void sync(); startRealtime() } else void stopRealtime() })
+    void App.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) { void sync(); startRealtime() } else { void flush(); void stopRealtime() }
+    })
   }
 }
 

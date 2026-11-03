@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const saved: Record<string, unknown>[] = []
 vi.mock('../src/data/db', () => ({ db: { put: async (_s: string, row: Record<string, unknown>) => { saved.push(row) }, all: async () => [] } }))
 vi.mock('../src/data/store', () => ({ deviceId: async () => 'dev1' }))
-vi.mock('../src/data/sync', () => ({ syncSoon: () => {} }))
+vi.mock('../src/data/sync', () => ({ pushSoon: () => {} }))
 
 const { SessionTracker, cleanPace, wordIndex } = await import('../src/data/sessions')
 
