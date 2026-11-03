@@ -3,7 +3,7 @@
 // onChange() events.
 
 import { db, kv } from './db'
-import { audioBucket, local } from './files'
+import { audioBucket, loadManifest, local } from './files'
 import { emit, forgetBook, localWrite, pullPosition, pushSoon } from './sync'
 import { demo, supabase } from './supabase'
 import { audioManager } from '../platform'
@@ -27,7 +27,10 @@ export const books = {
     const b = await books.get(id)
     if (!b || b.status === status) return
     await db.put('books', { ...b, status, finished_at: status === 'finished' ? now() : null, updated_at: now(), _dirty: true })
-    emit(['books'])
+    // "Por leer" starts the book over, here, on every device and on the Kobo
+    // (user decision 2026-11-02): the library says "Sin empezar".
+    if (status === 'to_read') await positions.restart(b)
+    emit(status === 'to_read' ? ['books', 'positions'] : ['books'])
     pushSoon()
     // Finishing a book doesn't delete audio here: the PC's worker does it a day
     // later (a mistaken "terminado" can be undone meanwhile), and every device
@@ -64,6 +67,21 @@ export const positions = {
       const base = cur ? (cur._dirty ? cur.base ?? null : cur.updated_at) : null
       await db.put('positions', { ...p, base, device: await deviceId(), updated_at: now(), _dirty: true })
       pushSoon(how === 'listen' ? 10_000 : 0)
+    })())
+  },
+  // Back to the book's first sentence of text ("Por leer"). A decision, not a
+  // page turned: it goes over a newer place from another device (no base).
+  // Without the book's text here (offline, never downloaded) the place stays.
+  async restart(book: Book): Promise<void> {
+    const first = (await loadManifest(book))?.sections.find(s => s.sentences.length)
+    if (!first) return
+    const cur = await positions.get(book.id)
+    if (cur && cur.section === first.i && cur.sentence === 0) return
+    await localWrite((async () => {
+      await db.put('positions', {
+        book_id: book.id, cfi: first.sentences[0].c, section: first.i, sentence: 0, fraction: 0,
+        base: null, device: await deviceId(), updated_at: now(), _dirty: true,
+      })
     })())
   },
   // Opening a book: the place on the server too (newest wins), so the book opens

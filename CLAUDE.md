@@ -545,6 +545,15 @@ screens and bottom sheets on phones. The reading surface has its own themes
   `leftBehind` in `data/places.ts`). Function deployed the same night.
   Also found: the phone at the cover (no text) sent the Kobo its own place
   back; now the nearest text (`placeForKobo`).
+- 2026-11-02 (late night): **"Por leer" means back to the start, everywhere.**
+  The Kobo's "no leído" already sends the book to its cover; Atril's "Por leer"
+  only changed the status, so the old place stayed and a fresh start on the
+  Kobo counted as "behind" (held back until it passed the old place). Now
+  marking "Por leer" in the apps (`positions.restart` in `data/store.ts`) or as
+  unread on the Kobo moves the shared place to the first sentence of text and
+  the library says "Sin empezar". Lost: only the old place, which is what
+  "unread" means (user agreed: "Me parece bien"). Comes with the echo rule
+  above (`told`), deployed to the function the same night.
 
 - 2026-11-03: **external narration attached to a book** (`import_audio.py`).
   First case: resumidor's Seguridad e Higiene EPUB (guion text + summary as
@@ -670,7 +679,13 @@ allow-list entry.
   device only a change made there counts (it repeats its status on every
   report), plus reading on it: a "Por leer" book becomes "Leyendo" when its
   place moves; "Reading" undoes "terminado" only if the Kobo itself had it
-  Finished (taken up again there). The device's `StatusInfo.LastModified` is
+  Finished (taken up again there). **The echo is not a change**: the Kobo takes
+  a status Atril hands it and reports it back later (at its next sync, maybe
+  hours), so `kobo_books.told` keeps the statuses it was told until it reports
+  them (`tell`/`toldAfter` in `logic.ts`); else a "Por leer" echoed after reading
+  on the phone would undo that reading. "No leído" made on the Kobo takes the
+  shared place back to the book's first text sentence (`startOf`), unless
+  another device read the book after it. The device's `StatusInfo.LastModified` is
   its report time, not when the status changed: no use for ordering.
   `SpentReadingMinutes` deltas become `reading_sessions`
   (`device_kind` 'ereader', words between the two places, never in reading

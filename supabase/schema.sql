@@ -329,6 +329,13 @@ create table if not exists public.kobo_books (
 -- ignores a "changed" entry for a book it never stored, and an answer can be
 -- lost (it may restart a sync after refreshing its resources).
 alter table public.kobo_books add column if not exists confirmed_at timestamptz;
+-- The statuses Atril handed the device in a reading state (other than the one
+-- it last reported) that it hasn't reported back yet. It takes them and says
+-- so later (a status from its library at its next sync, maybe hours later):
+-- that echo is not a change made on the device (functions/kobo/logic.ts).
+-- told_at: when the last one was added (a report made before that can't show it).
+alter table public.kobo_books add column if not exists told text[] not null default '{}';
+alter table public.kobo_books add column if not exists told_at timestamptz;
 
 -- Every request a Kobo makes (never the token), kept two weeks: when and how
 -- often it syncs is only learnt from this. body: what it reported of a book

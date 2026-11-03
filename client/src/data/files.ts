@@ -8,7 +8,8 @@
 
 import { supabase } from './supabase'
 import { db } from './db'
-import type { Book } from './types'
+import { gunzipJson } from '../book/manifest'
+import type { Book, Manifest } from './types'
 
 export interface RemoteFiles {
   upload(path: string, blob: Blob, contentType: string): Promise<void>
@@ -90,6 +91,21 @@ export const local = {
   async keysWithPrefix(prefix: string) {
     return (await db.keys('files')).map(String).filter(k => k.startsWith(prefix))
   },
+}
+
+// A book's sentence manifest: this device's copy, else downloaded (and kept).
+export async function loadManifest(book: Book): Promise<Manifest | null> {
+  try {
+    let blob = await local.get(`text:${book.id}`)
+    if (!blob && book.text_path) {
+      blob = await remote(book).download(book.text_path)
+      await local.put(`text:${book.id}`, blob)
+    }
+    return blob ? await gunzipJson<Manifest>(blob) : null
+  } catch (e) {
+    console.warn('manifest unavailable', e)
+    return null
+  }
 }
 
 export const paths = {

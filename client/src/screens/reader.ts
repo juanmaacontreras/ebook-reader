@@ -3,14 +3,13 @@ import type { Location, View } from 'foliate-js/view.js'
 import { Overlayer } from 'foliate-js/overlayer.js'
 import { NarrationController } from '../audio/controller'
 import { bookCss, MARGIN_GAP, palette } from '../book/bookStyles'
-import { gunzipJson } from '../book/manifest'
 import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentences'
-import { local, remote } from '../data/files'
+import { loadManifest } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
 import { habitualPace, langOf, SessionTracker, wordIndex } from '../data/sessions'
 import { isAhead, leftBehind } from '../data/places'
 import { flush, onChange } from '../data/sync'
-import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
+import type { Highlight, HighlightColor } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
 import { setBarsDark } from '../platform/theme'
 import { audioManager } from '../platform'
@@ -488,20 +487,6 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     void narr?.destroy()
     view.close()
     view.remove()
-  }
-}
-
-async function loadManifest(book: Book): Promise<Manifest | null> {
-  try {
-    let blob = await local.get(`text:${book.id}`)
-    if (!blob && book.text_path) {
-      blob = await remote(book).download(book.text_path)
-      await local.put(`text:${book.id}`, blob)
-    }
-    return blob ? await gunzipJson<Manifest>(blob) : null
-  } catch (e) {
-    console.warn('manifest unavailable', e)
-    return null
   }
 }
 
