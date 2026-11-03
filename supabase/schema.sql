@@ -210,6 +210,29 @@ begin
   end loop;
 end $$;
 
+-- A place goes back only from a device that knew the newest one. A device
+-- picked up before it synced (offline, or a page turned before the pull landed)
+-- would otherwise take every device back to its old page: newest time wins.
+-- `base` is what the writing device knew when it moved (the updated_at of the
+-- newest place it had seen); it is sent with the write and never kept, so a
+-- writer that doesn't send it (an older app, the Kobo function, which applies
+-- the same rule itself) is never judged by someone else's. A move that goes
+-- back past a newer place from another device the writer hadn't seen is
+-- dropped; moving ahead of it still counts. Fires after lww (names in order).
+alter table public.positions add column if not exists base timestamptz;
+create or replace function public.place_guard() returns trigger
+language plpgsql as $$
+begin
+  if new.base is not null and new.device is distinct from old.device and old.updated_at > new.base
+     and (new.section, new.sentence) < (old.section, old.sentence) then
+    return null;
+  end if;
+  new.base := null;
+  return new;
+end $$;
+drop trigger if exists place on public.positions;
+create trigger place before update on public.positions for each row execute function public.place_guard();
+
 -- Chapter rows are deleted when a book's audio is purged; devices learn about
 -- it from this log (a pull can't see a row that no longer exists).
 -- No foreign key on user_id: deleting a user cascades to its chapters, whose

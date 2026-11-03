@@ -2,7 +2,7 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
   deviceTime, fileFor, type KepubMap, type Manifest, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
-  statusChange, wordsBetween, writeCursor,
+  statusChange, takesPlace, wordsBetween, writeCursor,
 } from './logic.ts'
 
 const map: KepubMap = { v: 1, files: [{ p: 'OEBPS/Text/cap1.xhtml', i: 2, n: 10 }, { p: 'OEBPS/Text/cap2.xhtml', i: 3, n: 4 }] }
@@ -45,6 +45,29 @@ Deno.test('only a status changed on the device counts', () => {
   assertEquals(statusChange('Reading', 'Finished', 'reading'), 'finished')
   assertEquals(statusChange('Finished', 'ReadyToRead', 'finished'), 'to_read')  // "marcar como no leído"
   assertEquals(statusChange(undefined, 'ReadyToRead', 'reading'), null)  // first report of a new book
+  assertEquals(statusChange('Reading', 'ReadyToRead', 'reading'), 'to_read')  // "marcar como no leído" mid-book
+  // "Por leer" set in Atril while the device had it as Reading: reading on there
+  // (its place moved) makes it "Leyendo" again; the same place repeated doesn't.
+  assertEquals(statusChange('Reading', 'Reading', 'to_read', true), 'reading')
+  assertEquals(statusChange('Reading', 'Reading', 'to_read', false), null)
+  assertEquals(statusChange('Reading', 'Reading', 'finished', true), null)   // finished elsewhere: reading on doesn't undo it
+  assertEquals(statusChange('Finished', 'Reading', 'finished'), 'reading')   // taken up again on the device
+  assertEquals(statusChange('ReadyToRead', 'Reading', 'finished'), null)     // finished elsewhere, then opened here
+})
+
+Deno.test('a device behind the newest place does not take everyone back', () => {
+  const phone = { section: 5, sentence: 10, fraction: 0.5, device: 'phone-1', updated_at: '2026-11-02T10:00:00Z' }
+  const at = (section: number, sentence: number) => ({ section, sentence })
+  // Picked up before it synced: its previous report was elsewhere.
+  assertEquals(takesPlace(at(3, 4), at(3, 2), phone, 'kobo:1'), false)   // reading on behind: kept
+  assertEquals(takesPlace(at(5, 9), at(3, 2), phone, 'kobo:1'), false)
+  assertEquals(takesPlace(at(5, 11), at(3, 2), phone, 'kobo:1'), true)   // past it: counts
+  assertEquals(takesPlace(at(6, 0), null, phone, 'kobo:1'), true)
+  // In sync: it had reached that place, or the newest place is its own.
+  assertEquals(takesPlace(at(5, 2), at(5, 10), phone, 'kobo:1'), true)    // went back from there
+  assertEquals(takesPlace(at(1, 0), at(4, 0), { ...phone, device: 'kobo:1' }, 'kobo:1'), true)
+  assertEquals(takesPlace(at(1, 0), null, null, 'kobo:1'), true)
+  assertEquals(takesPlace(at(1, 0), null, { ...phone, section: null, sentence: null }, 'kobo:1'), true)
 })
 
 Deno.test('same place ignores the time and status', () => {

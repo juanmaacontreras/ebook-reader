@@ -87,7 +87,7 @@ supabase/schema.sql       full schema, idempotent (tables, RLS, triggers, bucket
 supabase/functions/kobo/  Edge Function: Atril as a Kobo's store (index.ts I/O, logic.ts pure + logic_test.ts)
 tools/screenshots.py      renders the real app in headless Chromium (design proposals)
 tools/kobo_e2e.py         Kobo sync end to end against the real backend (temporary account, cleaned up)
-tools/sync_e2e.py         device-to-device sync timing (two headless devices + a simulated Kobo), real backend
+tools/sync_e2e.py         device-to-device sync timing and rules (two headless devices + a simulated Kobo), real backend
 tools/e2e_common.py       shared by both: temporary account, HTTP/SQL helpers, signing the app in
 .github/workflows/        build.yml (test → APK + AppImage + NSIS → Release on main), keepalive.yml
 ```
@@ -119,6 +119,31 @@ index. While reading, it's the first sentence on the visible page; while
 listening, the sentence being spoken. Switching modes never loses it, and
 another device opens at the same sentence (or offers "Ir" if the book is
 already open).
+
+**Who moves the shared place (2026-11-02).** Only a move the reader makes on
+that device: pages, swipes, scrolling, TOC, slider, links, the voice. Not
+opening the book, not "Ir" (shown, not claimed: claiming would push the top of
+the page, a few sentences earlier, as newer), not a re-layout (foliate reason
+`'anchor'`: window resized or re-tiled, fonts, settings — it could push an old
+page over a newer place). `reader.ts` reads the reason from the renderer's own
+`relocate`, which fires right after the view's. Going back counts like any
+move, also to a page this device had saved before (it didn't: the dedupe
+compared with this device's own last save, so going back to a chapter's first
+page on the PC never reached the Kobo). **A device left behind never takes the
+others back**: while another device's newer place is known here and not taken
+(`behind`), page turns and the voice count only past that place; an explicit
+jump (TOC, slider, highlight) or "Ir" first makes it count again. A device that
+hadn't even heard of the newer place (offline, or a page turned before the pull
+landed) is stopped by the server: each write carries `base` (the updated_at of
+the newest place the device had seen; its unsent moves carry it forward), and
+the `place` trigger drops a write from another device that goes back past a
+newer place it hadn't seen (ahead of it still counts). `base` is never stored.
+A refused write is missing from the upsert's answer: the device fetches the
+book's place back (`pullPosition`) and shows "Ir". The Kobo function applies the
+same rule (`takesPlace`: a Kobo whose previous report wasn't at the newest place
+doesn't move it back). Checked with `tools/sync_e2e.py` (rules, stale; the old
+code failed 5 of those checks) and `tools/kobo_e2e.py`. (`resize` passes with
+the old code too: the 3-chapter sample can't shift a page's first sentence.)
 
 **Sync (client/src/data/sync.ts).** Offline-first: every change goes to
 IndexedDB with `_dirty`, then is pushed. Pull is incremental by the
@@ -468,6 +493,18 @@ screens and bottom sheets on phones. The reading surface has its own themes
   visible changed. Still open: highlights from the Kobo, and whether the Kobo
   asks for the place on waking with a book open (to check in `kobo_log`).
 
+- 2026-11-02 (night): **going back syncs too; a device left behind never takes
+  the others back; status (Por leer / Leyendo / Terminado) both ways with the
+  Kobo.** Found on the real device: going back to a chapter's first page on the
+  PC never reached the Kobo (the reader's dedupe compared with its own last
+  save). The user's condition for sending moves back: "evitemos el error de que
+  avanzo en un dispositivo, y cuando agarro el otro no se llega a sincronizar y
+  por lo tanto retrocede el otro". Rules: see "Who moves the shared place" under
+  Architecture and the Kobo's "Sync rules". No UI change (the existing "Ir").
+  Still to see on the real Kobo: whether it jumps *back* to a place behind its
+  own ("parece que estuviste leyendo en otro dispositivo" was only seen going
+  forward), and whether it shows a status set in Atril (after "Sincronizar").
+
 ## Current state (2026-10-21)
 
 Built, not yet confirmed on a device:
@@ -574,8 +611,15 @@ allow-list entry.
   `positions.synced_at`, `deleted_books.synced_at`. A place the device reports is
   written to `positions` (device `kobo:<id8>`, `updated_at` = the device's time, so
   LWW works with offline reading) only when it moved (it repeats its place on
-  every open/close). Status: only a change made on the device counts; "Reading"
-  never undoes "terminado". `SpentReadingMinutes` deltas become `reading_sessions`
+  every open/close), and never back past a newer place from another device it
+  hadn't reached (`takesPlace`, see "Who moves the shared place"). Status, both
+  ways: Atril's goes in every reading state (sync and GET state); from the
+  device only a change made there counts (it repeats its status on every
+  report), plus reading on it: a "Por leer" book becomes "Leyendo" when its
+  place moves; "Reading" undoes "terminado" only if the Kobo itself had it
+  Finished (taken up again there). The device's `StatusInfo.LastModified` is
+  its report time, not when the status changed: no use for ordering.
+  `SpentReadingMinutes` deltas become `reading_sessions`
   (`device_kind` 'ereader', words between the two places, never in reading
   speed). Removing a book on the Kobo only hides it there (`kobo_books.removed`).
 - **Security**: deployed with JWT verification off (the device can't send one;

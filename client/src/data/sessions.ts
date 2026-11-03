@@ -105,6 +105,15 @@ export class SessionTracker {
   /** Menus, a selection, a dialog: the page counts as time, not for speed. */
   taint(): void { this.tainted = true }
 
+  /** The page changed without reading here (following another device's place):
+   *  no words, and the time since the last activity isn't this device's either. */
+  moved(at: { section: number; sentence: number }): void {
+    const w = this.wordsAt(at.section, at.sentence)
+    if (w !== null) this.lastWords = w
+    this.last = Date.now()
+    this.anchor = null
+  }
+
   /** Something happened: kind of activity and, when known, the sentence reached. */
   async activity(kind: 'read' | 'listen', at?: { section: number; sentence: number }): Promise<void> {
     const now = Date.now()
