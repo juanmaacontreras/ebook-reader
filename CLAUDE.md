@@ -532,6 +532,8 @@ screens and bottom sheets on phones. The reading surface has its own themes
   both sides: only a device that missed progress (the newest place is past it)
   is held back; a move back made elsewhere holds nobody back (`takesPlace`,
   `leftBehind` in `data/places.ts`). Function deployed the same night.
+  Also found: the phone at the cover (no text) sent the Kobo its own place
+  back; now the nearest text (`placeForKobo`).
 
 ## Current state (2026-10-21)
 
@@ -629,7 +631,10 @@ allow-list entry.
   sentence k in `kobo.<k+1>.<piece>` (pieces = text nodes split by inline markup,
   footnote refs left out) and `kepub.json` maps archive file → spine index. So the
   Kobo's `{Source, Value: kobo.N.M}` is sentence N-1, and Atril's (section,
-  sentence) goes back as `kobo.<sentence+1>.1`. Built by any device that has the
+  sentence) goes back as `kobo.<sentence+1>.1`. A place on a page without text
+  (a cover, an image) goes as the start of the next text, else the end of the
+  last one: the Kobo can only stand on text (`placeForKobo`; going back to the
+  cover on the phone used to leave the Kobo where it was). Built by any device that has the
   EPUB, the desktop also downloads missing ones (`data/kepubs.ts`), refused if
   segmentation differs from the manifest. `books.kepub_path` is set by a direct
   update that leaves `updated_at` alone and is in `NOT_PUSHED` (sync.ts): a stale

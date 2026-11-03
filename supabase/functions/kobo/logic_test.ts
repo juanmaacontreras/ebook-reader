@@ -18,7 +18,8 @@ Deno.test('a Kobo place is a manifest sentence, and back', () => {
   assertEquals(placeFromKobo(map, { Type: 'KoboSpan', Value: 'kobo.99.1', Source: 'OEBPS/Text/cap2.xhtml' })?.sentence, 3)
   assertEquals(placeFromKobo(map, { Type: 'KoboSpan', Value: 'point(/1/4)', Source: 'OEBPS/Text/cap2.xhtml' }), null)
   assertEquals(placeFromKobo(map, { Type: 'KoboSpan', Value: 'kobo.1.1', Source: 'OEBPS/Text/portada.xhtml' }), null)
-  assertEquals(placeForKobo(map, 7, 0), null)
+  // A section with no text of its own goes to the nearest text (see below).
+  assertEquals(placeForKobo(map, 7, 0)?.location.Value, 'kobo.4.1')
 })
 
 Deno.test('words read going forward', () => {
@@ -72,6 +73,21 @@ Deno.test('a device that missed progress elsewhere does not take everyone back',
   assertEquals(takesPlace(at(1, 0), at(4, 0), { ...phone, device: 'kobo:1' }, 'kobo:1'), true)
   assertEquals(takesPlace(at(1, 0), null, null, 'kobo:1'), true)
   assertEquals(takesPlace(at(1, 0), null, { ...phone, section: null, sentence: null }, 'kobo:1'), true)
+})
+
+Deno.test('a page without text goes to the Kobo as the nearest text', () => {
+  const book: KepubMap = { v: 1, files: [
+    { p: 'OEBPS/Text/cover.xhtml', i: 0, n: 0 }, { p: 'OEBPS/Text/ch1.xhtml', i: 1, n: 8 },
+    { p: 'OEBPS/Text/plate.xhtml', i: 2, n: 0 }, { p: 'OEBPS/Text/ch2.xhtml', i: 3, n: 5 }, { p: 'OEBPS/Text/end.xhtml', i: 4, n: 0 },
+  ] }
+  // The cover (or a place before any text): the start of the book's text.
+  assertEquals(placeForKobo(book, 0, 0)?.location, { Value: 'kobo.1.1', Type: 'KoboSpan', Source: 'OEBPS/Text/ch1.xhtml' })
+  // An image between chapters: the start of the next one.
+  assertEquals(placeForKobo(book, 2, 0)?.location, { Value: 'kobo.1.1', Type: 'KoboSpan', Source: 'OEBPS/Text/ch2.xhtml' })
+  // Nothing after it: the end of the last text.
+  assertEquals(placeForKobo(book, 4, 0)?.location, { Value: 'kobo.5.1', Type: 'KoboSpan', Source: 'OEBPS/Text/ch2.xhtml' })
+  assertEquals(placeForKobo(book, 1, 3)?.location.Value, 'kobo.4.1')
+  assertEquals(placeForKobo({ v: 1, files: [] }, 0, 0), null)
 })
 
 Deno.test('same place ignores the time and status', () => {
