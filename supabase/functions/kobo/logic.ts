@@ -116,16 +116,17 @@ export function statusChange(previous: string | undefined, sent: string | undefi
 export interface Place { section: number; sentence: number }
 export const before = (a: Place, b: Place) => a.section < b.section || (a.section === b.section && a.sentence < b.sentence)
 
-// Whether a place the device reports becomes everyone's. A device that hadn't
-// reached the newest place (another device's, and its own previous report
-// wasn't there: picked up before it synced, or the jump not taken) doesn't
+// Whether a place the device reports becomes everyone's. A device that missed
+// progress made elsewhere (its previous report was behind the newest place,
+// another device's: picked up before it synced, or the jump not taken) doesn't
 // take everyone back by reading on behind it; going past it counts. A device
-// in sync (the newest place is its own, or it had reached it) moves it
-// anywhere, back too. The apps follow the same rule (reader.ts, schema.sql).
+// that missed nothing moves it anywhere, back too: the newest place is its own,
+// it had reached it, or it was past it (then the newest place is a move back
+// made elsewhere). The apps follow the same rule (reader.ts, schema.sql).
 export function takesPlace(to: Place, from: Place | null, current: AtrilPosition | null, device: string): boolean {
   if (!current || current.device === device || current.section === null || current.sentence === null) return true
   const cur = { section: current.section, sentence: current.sentence }
-  if (from && from.section === cur.section && from.sentence === cur.sentence) return true
+  if (from && !before(from, cur)) return true
   return !before(to, cur)
 }
 

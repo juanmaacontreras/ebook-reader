@@ -49,6 +49,7 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     store.ts              app operations (status, positions, highlights, narration requests)
     sessions.ts           reading sessions (time + words read/listened per device) for stats
     stats.ts              numbers for the Resumen screen, computed from the synced sessions
+    places.ts             reading places compared (who is ahead, who was left behind) — see "Who moves the shared place"
     files.ts              remote file provider (Supabase Storage; Google Drive later) + local blobs
     kepubs.ts             builds missing KEPUBs in the background after a sync
   src/book/
@@ -71,7 +72,7 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
                           app/src/main/java/com/atril/reader/: PlaybackService (Media3),
                           NarrationPlayerPlugin, AppUpdatePlugin, ScreenPlugin, MainActivity
   src-tauri/              Tauri desktop shell (updater + process plugins only)
-  tests/                  vitest (jsdom): segmentation, CFI round trip, manifest of the sample EPUB, sessions
+  tests/                  vitest (jsdom): segmentation, CFI round trip, manifest of the sample EPUB, sessions, places
   tests/fixtures/muestra.epub   small Spanish EPUB (regenerate: tests/make_sample_epub.py)
 tts-worker/               narration worker for the PC (Python 3.12, uv)
   worker/main.py          the loop (heartbeat, sweep finished books, pick chapter, generate, upload)
@@ -130,9 +131,13 @@ page over a newer place). `reader.ts` reads the reason from the renderer's own
 move, also to a page this device had saved before (it didn't: the dedupe
 compared with this device's own last save, so going back to a chapter's first
 page on the PC never reached the Kobo). **A device left behind never takes the
-others back**: while another device's newer place is known here and not taken
-(`behind`), page turns and the voice count only past that place; an explicit
-jump (TOC, slider, highlight) or "Ir" first makes it count again. A device that
+others back**: while another device's newer place is known here, not taken, and
+*past this device's place* (progress made there that this one missed:
+`behind`, `data/places.ts`), page turns and the voice count only past that
+place; an explicit jump (TOC, slider, highlight) or "Ir" first makes it count
+again. A newer place *behind* this one is a move back made there: nothing was
+missed, so moves here keep counting, back past it too ("Ir" is offered either
+way). A device that
 hadn't even heard of the newer place (offline, or a page turned before the pull
 landed) is stopped by the server: each write carries `base` (the updated_at of
 the newest place the device had seen; its unsent moves carry it forward), and
@@ -140,10 +145,12 @@ the `place` trigger drops a write from another device that goes back past a
 newer place it hadn't seen (ahead of it still counts). `base` is never stored.
 A refused write is missing from the upsert's answer: the device fetches the
 book's place back (`pullPosition`) and shows "Ir". The Kobo function applies the
-same rule (`takesPlace`: a Kobo whose previous report wasn't at the newest place
-doesn't move it back). Checked with `tools/sync_e2e.py` (rules, stale; the old
-code failed 5 of those checks) and `tools/kobo_e2e.py`. (`resize` passes with
-the old code too: the 3-chapter sample can't shift a page's first sentence.)
+same rule (`takesPlace`: a Kobo whose previous report was behind the newest
+place, so it missed progress, doesn't move it back; one at it or past it moves
+it anywhere). Checked with `tools/sync_e2e.py` (rules, ahead, stale; the old
+code failed 5 of the rules/stale checks and the ahead one) and
+`tools/kobo_e2e.py`. (`resize` passes with the old code too: the 3-chapter
+sample can't shift a page's first sentence.)
 
 **Sync (client/src/data/sync.ts).** Offline-first: every change goes to
 IndexedDB with `_dirty`, then is pushed. Pull is incremental by the
@@ -507,16 +514,24 @@ screens and bottom sheets on phones. The reading surface has its own themes
   **Known gap (kobo_log, same night):** the Kobo reports nothing when the user
   accepts its own "reading on another device" jump, and nothing in its reports
   says whether it took Atril's place (every timestamp in a PUT is the report's
-  time; it never echoes ours). So a move back made on the Kobo right after
-  accepting (before its next report, ~1 min), or after declining, stays `kept`
-  until the Kobo passes the other device's place: the others then open *ahead*
-  of the real place, never behind. It happened for real at 20:05–20:06 local
-  (accepted 8.66 from the PC, went back to 7.320); the old function took it.
-  Possible fix: count the first state GET after an idle gap that answered a
-  newer place as "the device showed its dialog" (after that, any move counts).
-  Safe only if the Kobo GETs, and shows the dialog, on waking with a book open
-  (else that GET may be a periodic one while it was already being read). To
-  test: sleep with a book open, move ahead on the phone, wake the Kobo.
+  time; it never echoes ours). So when the Kobo was *behind* the other device's
+  place, a move back made on it right after accepting (before its next report,
+  ~1 min), or after declining, stays `kept` until the Kobo passes that place:
+  the others then open *ahead* of the real place, never behind. It happened
+  for real at 20:05–20:06 local (accepted 8.66 from the PC, went back to
+  7.320); the old function took it. Possible fix: count a state GET that
+  answered a newer place as "the device showed its dialog" (after that, any
+  move counts). Safe only if the Kobo shows the dialog on that GET: on waking
+  with a book open it does (user, same night); whether it also does on the
+  periodic GETs while awake with the book open (~every 30–60 s) was asked.
+- 2026-11-02 (later that night), **tested on the real devices**: going back on
+  the phone took the Kobo back (its dialog, then the jump), but going back on
+  the Kobo didn't reach the phone: the Kobo was *ahead* (17.142) when the phone
+  went back (10.914), then went back itself (7.320) and was `kept` (the rule
+  then required its previous report to be *at* the newest place). Relaxed on
+  both sides: only a device that missed progress (the newest place is past it)
+  is held back; a move back made elsewhere holds nobody back (`takesPlace`,
+  `leftBehind` in `data/places.ts`). Function deployed the same night.
 
 ## Current state (2026-10-21)
 
@@ -624,8 +639,8 @@ allow-list entry.
   `positions.synced_at`, `deleted_books.synced_at`. A place the device reports is
   written to `positions` (device `kobo:<id8>`, `updated_at` = the device's time, so
   LWW works with offline reading) only when it moved (it repeats its place on
-  every open/close), and never back past a newer place from another device it
-  hadn't reached (`takesPlace`, see "Who moves the shared place"). Status, both
+  every open/close), and never back past a newer place from another device
+  that it was behind (`takesPlace`, see "Who moves the shared place"). Status, both
   ways: Atril's goes in every reading state (sync and GET state); from the
   device only a change made there counts (it repeats its status on every
   report), plus reading on it: a "Por leer" book becomes "Leyendo" when its

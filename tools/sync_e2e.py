@@ -14,7 +14,9 @@ account, the real app) and a simulated Kobo talking to the deployed function:
                a device left behind (another's newer place known, "Ir" not taken)
                doesn't take the others back by turning pages; an explicit jump
                (slider) does; after "Ir", going back does
-  stale        the same for a device that hadn't even heard of the newer place
+  ahead        another device goes back; a device that was past that place
+               missed nothing, so its own page back (to before it) counts
+  stale       the same for a device that hadn't even heard of the newer place
                (offline): its older page is refused by the server and the newer
                place comes back to it; a page past the newer one is taken
   resize       a device behind whose window changes size (a re-layout, no page
@@ -25,14 +27,16 @@ account, the real app) and a simulated Kobo talking to the deployed function:
                book and about once a minute while one is open)
 
     SUPABASE_PAT=... python tools/sync_e2e.py [--url http://localhost:5173] [--runs 5]
-                                              [--only live,leaving,back,opening,rules,stale,resize,kobo]
+                                              [--only live,leaving,back,opening,rules,ahead,stale,resize,kobo]
 
 Needs Playwright in a throwaway venv and `npm run dev` running in client/.
 Everything it creates is deleted at the end.
 """
 
 import argparse
+import gzip
 import hashlib
+import json
 import secrets
 import statistics
 import time
@@ -64,7 +68,7 @@ SHOW = """() => {
   document.dispatchEvent(new Event('visibilitychange'))
 }"""
 TOAST = "Seguiste leyendo en otro dispositivo"
-SCENARIOS = ["live", "leaving", "back", "opening", "rules", "stale", "resize", "kobo"]
+SCENARIOS = ["live", "leaving", "back", "opening", "rules", "ahead", "stale", "resize", "kobo"]
 
 
 def ms(seconds: float | None) -> str:
@@ -305,6 +309,34 @@ def main() -> None:
             after = wait_for(lambda: (s := server_pos()) and jumped and s["cfi"] != jumped["cfi"] and s, 10, every=0.1)
             check(bool(after) and after["device"] == (local_pos(a) or {}).get("device"), "after \"Ir\", a page back reaches the others")
 
+        def ahead() -> None:
+            # Another device goes back; this one was past that place, so it
+            # missed nothing: its own page back (to before that place) counts.
+            print("\nahead: a move back made elsewhere doesn't hold back a device that was past it")
+            reopen(a)
+            end = jump(a, 1.0)
+            if not end:
+                check(False, "A at the last chapter"); return
+            _, _, gz = http("GET", f"{URL}/storage/v1/object/library/{book['text_path']}", headers=acc.headers, raw=True)
+            secs = [x for x in json.loads(gzip.decompress(gz))["sections"] if x["sentences"]]
+            sec = secs[-2]  # the chapter before A's: its last sentence
+            k = len(sec["sentences"]) - 1
+            r = {"cfi": sec["sentences"][k]["c"], "section": sec["i"], "sentence": k}
+            status, _, _ = http("POST", f"{URL}/rest/v1/positions?on_conflict=book_id",
+                                {"book_id": bid, **r, "fraction": 0.6, "device": "other-e2e",
+                                 "updated_at": datetime.now(timezone.utc).isoformat()},
+                                {**acc.headers, "Prefer": "resolution=merge-duplicates"})
+            heard = status < 300 and wait_for(lambda: (x := local_pos(a)) and x["cfi"] == r["cfi"], 10, every=0.05)
+            if not check(bool(heard), "another device goes back behind A, and A hears of it"):
+                return
+            go(a, False)
+            mine = settled(a)
+            ok = bool(mine) and mine["device"] != "other-e2e" and (mine["section"], mine["sentence"]) < (r["section"], r["sentence"])
+            if not ok:
+                print(f"   that place {r}; A shows {shown(a)}, has {mine}")
+            check(ok and bool(wait_for(on_server(mine["cfi"]), 10, every=0.1)),
+                  "A, which was past it, going back before it reaches the others")
+
         def stale() -> None:
             # The sample book is three short chapters: a page turn is a chapter.
             print("\nstale: B offline doesn't know A moved on")
@@ -428,7 +460,7 @@ def main() -> None:
                         record(label, r["ms"] / 1000)
 
         for name in only:
-            {"live": live, "leaving": leaving, "back": back, "opening": opening, "rules": rules,
+            {"live": live, "leaving": leaving, "back": back, "opening": opening, "rules": rules, "ahead": ahead,
              "stale": stale, "resize": resize, "kobo": kobo}[name]()
         browser.close()
 

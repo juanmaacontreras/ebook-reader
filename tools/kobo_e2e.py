@@ -175,6 +175,18 @@ def main() -> None:
         pos = sql(pos_q)[0]
         check((pos["section"], pos["sentence"]) == (s2["i"], 2), "then a page back on the Kobo goes to everyone")
 
+        print("kobo: ahead of a place moved back elsewhere")
+        http("POST", f"{URL}/rest/v1/positions?on_conflict=book_id",
+             {"book_id": bid, "cfi": s2["sentences"][1]["c"], "section": s2["i"], "sentence": 1, "fraction": 0.85,
+              "device": "phone-e2e", "updated_at": later().isoformat()},
+             {**user, "Prefer": "resolution=merge-duplicates"})
+        check(sql(pos_q)[0]["device"] == "phone-e2e", "the phone goes back, behind the Kobo")
+        report("kobo.1.1", 8, "Reading", later(), fl["p"])
+        pos = sql(pos_q)[0]
+        check(pos["device"].startswith("kobo:") and (pos["section"], pos["sentence"]) == (s2["i"], 0),
+              "the Kobo (it missed nothing: it was ahead) going back further reaches everyone")
+        report("kobo.3.1", 8, "Reading", later(), fl["p"])  # back where the next checks expect it
+
         print("status both ways")
         http("PATCH", f"{URL}/rest/v1/books?id=eq.{bid}", {"status": "to_read", "finished_at": None,
              "updated_at": datetime.now(timezone.utc).isoformat()}, user)  # "Marcar como «Por leer»" on the phone

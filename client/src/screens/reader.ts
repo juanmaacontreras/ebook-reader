@@ -8,6 +8,7 @@ import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentenc
 import { local, remote } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
 import { habitualPace, langOf, SessionTracker, wordIndex } from '../data/sessions'
+import { isAhead, leftBehind } from '../data/places'
 import { flush, onChange } from '../data/sync'
 import type { Book, Highlight, HighlightColor, Manifest } from '../data/types'
 import { HIGHLIGHT_COLORS } from '../data/types'
@@ -449,8 +450,11 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     if (!opened || !p || p.cfi === synced?.cfi) return
     synced = { cfi: p.cfi, section: p.section, sentence: p.sentence }
     if (p.device === me) return
-    behind = !showing(p.section, p.sentence)
-    if (behind && !(narr?.playing)) {
+    // "Ir" whenever that place isn't on this page; held back (behind) only by
+    // progress made there that this device missed, never by a move back.
+    const away = !showing(p.section, p.sentence)
+    behind = away && leftBehind(p, lastPos)
+    if (away && !(narr?.playing)) {
       toast(t.continueOther, { label: t.goThere, run: () => { behind = false; void follow(() => view.goTo(p.cfi)) } }, 6000)
     }
   }
@@ -485,12 +489,6 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     view.close()
     view.remove()
   }
-}
-
-/** Whether a place is past another one in the book (spine order, then sentence). */
-export function isAhead(a: { section: number; sentence: number }, b: { section: number | null; sentence: number | null } | null): boolean {
-  if (!b || b.section === null || b.sentence === null) return true
-  return a.section > b.section || (a.section === b.section && a.sentence > b.sentence)
 }
 
 async function loadManifest(book: Book): Promise<Manifest | null> {
