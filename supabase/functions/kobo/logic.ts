@@ -215,6 +215,7 @@ export function removedEntitlement(id: string, at: string): KoboState {
 // The sync token: opaque to the device, it hands it back on the next sync.
 export interface SyncCursor { books: string; positions: string; deleted: string }
 const EPOCH = '1970-01-01T00:00:00Z'
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/
 
 export function readCursor(header: string | null): SyncCursor | null {
   if (!header) return null
@@ -223,7 +224,9 @@ export function readCursor(header: string | null): SyncCursor | null {
     // 2: since books count as on the device only once it confirmed them (any
     // older token starts over, so books lost to version 1 are sent again).
     if (raw?.atril !== 2) return null
-    return { books: raw.b ?? EPOCH, positions: raw.p ?? EPOCH, deleted: raw.d ?? EPOCH }
+    const c = { books: raw.b ?? EPOCH, positions: raw.p ?? EPOCH, deleted: raw.d ?? EPOCH }
+    // Each part goes into a query: a token that isn't ours whole starts over.
+    return Object.values(c).every(v => typeof v === 'string' && TIMESTAMP.test(v)) ? c : null
   } catch {
     return null  // Kobo's own token, from before this device synced with Atril
   }

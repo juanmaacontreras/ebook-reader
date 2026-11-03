@@ -319,6 +319,7 @@ create table if not exists public.kobo_log (
   body jsonb
 );
 alter table public.kobo_log add column if not exists body jsonb;
+alter table public.kobo_log add column if not exists ms int;  -- time to answer
 create index if not exists kobo_log_at on public.kobo_log (at);
 
 alter table public.kobo_devices enable row level security;
