@@ -37,11 +37,23 @@ export function placeFromKobo(map: KepubMap, loc: KoboLocation | undefined): { s
 }
 
 // (section, sentence) → Kobo place, with how far into the chapter it is (0..100).
+// The Kobo can only stand on text: a page without any (a cover, an image) goes
+// as the start of the next text, else the end of the last one.
 export function placeForKobo(map: KepubMap, section: number | null, sentence: number | null): { location: Required<KoboLocation>; chapterPercent: number } | null {
   if (section == null) return null
-  const file = map.files.find(f => f.i === section)
-  if (!file || !file.n) return null
-  const k = Math.min(Math.max(sentence ?? 0, 0), file.n - 1)
+  let file = map.files.find(f => f.i === section && f.n) ?? null
+  let k = sentence ?? 0
+  if (!file) {
+    const text = map.files.filter(f => f.n).sort((a, b) => a.i - b.i)
+    file = text.find(f => f.i > section) ?? null
+    k = 0
+    if (!file) {
+      file = text.filter(f => f.i < section).pop() ?? null
+      k = file ? file.n - 1 : 0
+    }
+    if (!file) return null
+  }
+  k = Math.min(Math.max(k, 0), file.n - 1)
   return {
     location: { Value: `kobo.${k + 1}.1`, Type: 'KoboSpan', Source: file.p },
     chapterPercent: Math.round((k / file.n) * 100),
