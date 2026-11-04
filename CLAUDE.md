@@ -563,6 +563,21 @@ screens and bottom sheets on phones. The reading surface has its own themes
   "Generar ahora" with another voice replaces it as usual. Whisper runs on the
   CPU (int8 small, ~1 min per 8 min of audio); the worker's session file is
   shared, so the service is stopped while the tool runs (rotating refresh token).
+- 2026-11-03 (night): **one cover slot + a mini player** (user: "me copa" to my
+  proposal, then "hacelo", skipping the variants step to have it on the phone
+  for the next morning's commute). Covers: every library-grid cover sits in a
+  3:4 slot, the shape of resumidor's covers (Kobo Clara screen). Taller covers
+  scale to the slot's height (2:3 ones ~11% narrower, centered), wider ones keep
+  the width at the bottom; nothing cropped or stretched (`fillCover` measures,
+  CSS "Covers"). The keep-reading card keeps real proportions. Player: while
+  listening, the toolbars and the full player fold back after 4 s untouched
+  (`AUTOHIDE_MS`; a finger held on a control keeps them) into a mini bar
+  (play/pause, chapter, time, progress line). It fits in the room the page
+  already leaves at the bottom (44 px page margin + the footer's place), so the
+  text is never under it; scrolled flow adds 42 px. A tap on the bar unfolds
+  everything; a middle tap while unfolded only folds (no seek); folded, a middle
+  tap seeks as before. Checked in headless Chromium (`?demo`, silent narration
+  seeded): bar top 14 px below the text, fold/unfold/hold/seek/pause/close.
 
 ## Current state (2026-10-21)
 

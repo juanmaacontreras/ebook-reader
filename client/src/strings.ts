@@ -121,6 +121,7 @@ export const t = {
   listen: 'Escuchar',
   play: 'Reproducir',
   pause: 'Pausar',
+  showControls: 'Mostrar controles',
   back30: 'Atrás 30 segundos',
   fwd30: 'Adelante 30 segundos',
   prevSentence: 'Oración anterior',

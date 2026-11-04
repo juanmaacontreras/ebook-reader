@@ -30,6 +30,8 @@ interface Annotation { value: string; color?: string; kind?: 'tts' | 'hl'; id?: 
 // A touch counts as a tap if the finger moved at most this many px, this fast.
 const TAP_SLOP = 12
 const TAP_MS = 450
+// While listening, the unfolded controls fold back after this long untouched.
+const AUTOHIDE_MS = 4000
 
 export async function readerScreen(root: HTMLElement, bookId: string, goBack: () => void): Promise<() => void> {
   const book = await books.get(bookId)
@@ -83,6 +85,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     setBarsDark(pal.dark)
     const r = view.renderer
     r.setAttribute('flow', p.flow)
+    shell.dataset.flow = p.flow
     r.setAttribute('gap', MARGIN_GAP[p.margins])
     r.setAttribute('margin', p.flow === 'scrolled' ? '0px' : '44px')
     r.setAttribute('max-inline-size', '720px')
@@ -278,12 +281,36 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       h('div.grow'),
       h('button.iconbtn.flat', { 'aria-label': t.close, onclick: () => { sel.removeAllRanges(); selbar.classList.add('hidden') } }, icon('close')))
     selbar.classList.remove('hidden')
-    setChrome(true)
+    if (!playerVisible) setChrome(true)
   }
 
   // ---- Taps: page turns, chrome, and seek-to-sentence while listening --------
+  // While listening, chrome on = toolbars + the full player over the page, and
+  // it folds back by itself (the player to its mini bar, which fits in the room
+  // the page already leaves at the bottom) after a few seconds without a touch.
+  // Picked by the user 2026-11-03: the full player covered the text and a tap in
+  // the middle seeks, so nothing put it away.
   let chromeOn = false
-  const setChrome = (on: boolean) => { chromeOn = on; shell.classList.toggle('chrome-off', !on); if (on) tracker.taint() }
+  let hideTimer: number | undefined
+  let holding = false // a finger (or the mouse button) is down on a toolbar
+  const armHide = () => {
+    clearTimeout(hideTimer)
+    if (chromeOn && playerVisible && !holding) hideTimer = window.setTimeout(() => setChrome(false), AUTOHIDE_MS)
+  }
+  const setChrome = (on: boolean) => {
+    chromeOn = on
+    shell.classList.toggle('chrome-off', !on)
+    if (on) tracker.taint()
+    armHide()
+  }
+  const release = () => { if (holding) { holding = false; armHide() } }
+  for (const bar of [topbar, dock]) {
+    bar.addEventListener('pointerdown', () => { holding = true; clearTimeout(hideTimer) })
+    bar.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && !holding) armHide() })
+    bar.addEventListener('input', armHide)
+  }
+  window.addEventListener('pointerup', release, true)
+  window.addEventListener('pointercancel', release, true)
   view.addEventListener('load', ((e: CustomEvent<{ doc: Document; index: number }>) => {
     const { doc, index } = e.detail
     docIndex.set(doc, index)
@@ -329,6 +356,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     const x = clientX + (frame?.getBoundingClientRect().left ?? 0) - stage.getBoundingClientRect().left
     const w = stage.clientWidth
     if (narr?.status && x > w * 0.2 && x < w * 0.8 && playerVisible) {
+      // Controls unfolded: this tap only folds them, it doesn't move the voice.
+      if (chromeOn) { setChrome(false); return }
       const pos = caretAt(doc, clientX, clientY)
       if (pos) {
         const k = sentenceAt(sentencesOf(index, doc), pos.node, pos.offset)
@@ -411,6 +440,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
       player = playerCard(narr, {
         close: () => hidePlayer(),
         voice: () => openNarrationSheet(book, narr!, currentSentence().section),
+        expand: () => setChrome(true),
         title: s => manifest?.sections.find(x => x.i === s)?.label ?? '',
       })
       dock.insertBefore(player.el, navrow)
@@ -418,6 +448,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     navrow.classList.add('hidden')
     player.el.classList.remove('hidden')
     playerVisible = true
+    shell.classList.add('listening')
     setChrome(true)
     const { section, sentence } = currentSentence()
     if (!narr.playing) await narr.start(manifest!.sections.some(s => s.i === section) ? section : nextNarratedSection(section), sentence)
@@ -426,6 +457,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     await narr?.pause()
     audioDriven = false
     playerVisible = false
+    shell.classList.remove('listening')
+    clearTimeout(hideTimer)
     player?.el.classList.add('hidden')
     navrow.classList.remove('hidden')
     if (ttsCfi) { await view.deleteAnnotation({ value: ttsCfi }); ttsCfi = null }
@@ -484,6 +517,9 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     offPrefs()
     offChange()
     document.removeEventListener('keydown', onKey)
+    clearTimeout(hideTimer)
+    window.removeEventListener('pointerup', release, true)
+    window.removeEventListener('pointercancel', release, true)
     void narr?.destroy()
     view.close()
     view.remove()

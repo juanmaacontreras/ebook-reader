@@ -15,6 +15,8 @@ import { openHighlightsPanel } from './highlights'
 import { openSettings } from './settings'
 
 const coverUrls = new Map<string, string>()
+// Width : height of the library grid's cover slot.
+const COVER_SLOT = 3 / 4
 const PLACEHOLDER_COLORS = ['#5E81AC', '#8FBCBB', '#B48EAD', '#D08770', '#A3BE8C', '#EBCB8B', '#BF616A']
 
 export function libraryScreen(root: HTMLElement, openBook: (id: string) => void): () => void {
@@ -187,8 +189,18 @@ async function fillCover(el: HTMLElement, b: Book) {
     }
     if (blob) { url = URL.createObjectURL(blob); coverUrls.set(b.id, url) }
   }
-  if (url) el.prepend(h('img', { src: url, alt: '', loading: 'lazy', draggable: false }))
-  else {
+  if (url) {
+    const img = h('img', { src: url, alt: '', loading: 'lazy', draggable: false }) as HTMLImageElement
+    // The image's shape, for the grid's 3:4 slot (see "Covers" in app.css).
+    img.onload = () => {
+      const r = img.naturalWidth / img.naturalHeight
+      if (!(r > 0)) return
+      el.style.setProperty('--cw', String(Math.min(1, r / COVER_SLOT)))
+      el.style.setProperty('--ct', String(Math.max(0, 1 / COVER_SLOT - 1 / r)))
+      el.classList.add('sized')
+    }
+    el.prepend(img)
+  } else {
     const c = PLACEHOLDER_COLORS[parseInt(b.sha256.slice(0, 2), 16) % PLACEHOLDER_COLORS.length]
     el.prepend(h('div.ph', { '--c': c }, h('b', b.title), h('span', b.author ?? '')))
   }

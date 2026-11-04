@@ -20,7 +20,7 @@ const fmt = (s: number) => {
 }
 const rateLabel = (r: number) => `${String(r).replace('.', ',')}×`
 
-export function playerCard(narr: NarrationController, opts: { close: () => void; voice: () => void; title: (section: number) => string }): PlayerCard {
+export function playerCard(narr: NarrationController, opts: { close: () => void; voice: () => void; expand: () => void; title: (section: number) => string }): PlayerCard {
   const chapter = h('b', '')
   const status = h('span', '')
   const cur = h('span.num', '0:00')
@@ -60,7 +60,30 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
   const skipBtn = (ico: string, label: string, run: () => void) =>
     h('button.iconbtn.flat.skipbtn', { title: label, 'aria-label': label, onclick: run }, icon(ico), h('small', '30'))
 
+  // Mini bar: all that stays of the player while the reader's toolbars are
+  // hidden (CSS shows it instead of the full card, see `.reader.chrome-off
+  // .player`). Play/pause, where it is, a progress line; the rest of the bar
+  // brings the full controls back.
+  const miniIcon = h('span', icon('play'))
+  const miniPlay = h('button.playmini', { 'aria-label': t.play, onclick: () => void narr.toggle() }, miniIcon)
+  const miniTitle = h('b', '')
+  const miniSub = h('span.num', '')
+  const fill = h('i')
+  const mini = h('div.pmini',
+    miniPlay,
+    h('button.pexpand', { 'aria-label': t.showControls, onclick: () => opts.expand() }, h('span.pinfo', miniTitle, miniSub), icon('up')),
+    h('div.pbar', fill))
+  let lastDuration = 0
+  let statusNow: { message: string | null; busy?: boolean } = { message: null }
+  const spinner = () => h('span.spinner', { style: 'display:inline-block;width:11px;height:11px;border-width:2px;vertical-align:-1px;margin-right:6px' })
+  // Under the chapter: the status while there is one (waiting, downloading), else the time.
+  const renderMiniSub = () => {
+    if (statusNow.message) miniSub.replaceChildren(...(statusNow.busy ? [spinner()] : []), statusNow.message)
+    else miniSub.textContent = `${fmt(lastTime)} / ${fmt(lastDuration)}`
+  }
+
   const el = h('div.card.player',
+    mini,
     h('div.ptop',
       h('div.pinfo', chapter, status),
       h('button.iconbtn.flat', { title: audioManager ? t.voice : t.narration, 'aria-label': audioManager ? t.voice : t.narration, onclick: () => opts.voice() }, icon('wave')),
@@ -78,21 +101,28 @@ export function playerCard(narr: NarrationController, opts: { close: () => void;
   return {
     el,
     setPlaying(p) {
-      playIcon.replaceChildren(icon(p ? 'pause' : 'play'))
-      play.setAttribute('aria-label', p ? t.pause : t.play)
+      for (const [btn, ico] of [[play, playIcon], [miniPlay, miniIcon]] as const) {
+        ico.replaceChildren(icon(p ? 'pause' : 'play'))
+        btn.setAttribute('aria-label', p ? t.pause : t.play)
+      }
     },
     setTime(section, time, duration) {
-      chapter.textContent = opts.title(section)
+      chapter.textContent = miniTitle.textContent = opts.title(section)
       lastTime = time
+      lastDuration = duration
       if (!dragging) {
         seek.max = String(duration || 1)
         seek.value = String(time)
         cur.textContent = fmt(time)
       }
       dur.textContent = fmt(duration)
+      fill.style.width = `${duration > 0 ? Math.min(100, (time / duration) * 100) : 0}%`
+      renderMiniSub()
     },
     setStatus(message, busy) {
-      status.replaceChildren(...(busy ? [h('span.spinner', { style: 'display:inline-block;width:11px;height:11px;border-width:2px;vertical-align:-1px;margin-right:6px' })] : []), message ?? '')
+      statusNow = { message, busy }
+      status.replaceChildren(...(busy ? [spinner()] : []), message ?? '')
+      renderMiniSub()
     },
   }
 }
