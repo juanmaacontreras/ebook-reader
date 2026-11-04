@@ -165,7 +165,10 @@ textarea.field { resize:vertical; min-height:96px; line-height:1.4; }
 .bottomdock { position:absolute; left:0; right:0; bottom:0; z-index:10; padding:0 10px calc(10px + var(--safe-bottom));
   transition:transform .2s ease, opacity .2s; pointer-events:none; }
 .bottomdock > * { pointer-events:auto; max-width:640px; margin:0 auto; }
-.reader.chrome-off:not(.playing) .bottomdock { transform:translateY(110%); opacity:0; }
+.reader.chrome-off:not(.playing):not(.listening) .bottomdock { transform:translateY(110%); opacity:0; }
+/* Listening, scrolled flow: room for the mini player under the text (paginated
+   pages already leave it: the 44px page margin + the footer's place). */
+.reader.listening[data-flow=scrolled] .stage { padding-bottom:42px; }
 .navrow { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:8px; }
 .navrow input[type=range] { flex:1; }
 .navrow .pct { font-size:12.5px; font-weight:700; color:var(--inkSoft); min-width:38px; text-align:right; }
@@ -197,6 +200,25 @@ input[type=range]::-moz-range-thumb { width:16px; height:16px; border-radius:50%
 .pstatus.warn { color:var(--paused); }
 .skipbtn { position:relative; }
 .skipbtn small { position:absolute; font-size:9px; font-weight:800; top:50%; left:50%; transform:translate(-50%,-42%); }
+/* Mini player: the card folds into this bar while the toolbars are hidden. It
+   fits in the room the page leaves at the bottom, so it never covers the text. */
+.player .pmini { display:none; position:relative; align-items:center; gap:6px; height:52px; padding:0 8px 0 6px; }
+.reader.chrome-off .player { padding:0; overflow:hidden; }
+.reader.chrome-off .player > :not(.pmini) { display:none; }
+.reader.chrome-off .player .pmini { display:flex; }
+.player > * { animation:pfade .18s ease; }
+@keyframes pfade { from { opacity:0; } }
+.playmini { flex:none; width:40px; height:40px; border-radius:50%; border:none; background:var(--indigo); color:var(--onAccent);
+  display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.playmini .ico { width:20px; height:20px; }
+.pexpand { flex:1; min-width:0; align-self:stretch; display:flex; align-items:center; gap:8px; padding:0 4px 0 6px;
+  border:none; background:none; color:var(--muted); font:inherit; text-align:left; cursor:pointer; }
+.pexpand .pinfo { flex:1; min-width:0; }
+.pexpand .pinfo b { display:block; font-size:14px; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pexpand .pinfo span { display:block; font-size:12px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pexpand > .ico { flex:none; width:20px; height:20px; }
+.pmini .pbar { position:absolute; left:0; right:0; bottom:0; height:3px; background:var(--surface2); }
+.pmini .pbar i { display:block; height:100%; width:0; background:var(--indigo); }
 
 /* Selection bar */
 .selbar { display:flex; align-items:center; gap:6px; padding:10px 12px; margin-bottom:8px; }
@@ -247,7 +269,7 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
   border-top-color:currentColor; animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .rfoot { transition:opacity .2s; }
-.reader:not(.chrome-off) .rfoot, .reader.playing .rfoot { opacity:0; }
+.reader:not(.chrome-off) .rfoot, .reader.playing .rfoot, .reader.listening .rfoot { opacity:0; }
 
 /* Library: "keep reading" card above the grid */
 .herocard { display:flex; gap:18px; padding:16px; margin-top:18px; border-radius:24px; background:var(--accentSoft); box-shadow:none; max-width:720px; }
@@ -259,13 +281,20 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .herocard .prog .track { background:color-mix(in srgb, var(--indigo) 18%, var(--card)); }
 .hbtns { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
 
-/* ===== Covers keep their real proportions ==================================
-   Real covers are ~1:1.6, taller than the 2:3 tiles, and were cropped. The tile
-   ratio only shapes placeholders now. On phones the keep-reading card stacks
-   (large cover on top, info below): option B, picked by the user 2026-10-22
-   over a bigger side-by-side cover (A) and fixed tiles with a blurred fill (C). */
+/* ===== Covers: never cropped or stretched ==================================
+   Library grid (user, 2026-11-03: rows of uneven covers): every cover gets the
+   same 3:4 slot, the shape of resumidor's covers (the Kobo Clara screen) and the
+   widest common one. A taller cover is scaled to the slot's height, so it comes
+   out narrower and centered; a wider one keeps the full width, at the bottom.
+   `fillCover` measures the image: --cw = its width share, --ct = the gap above
+   it (share of the width). Placeholders fill the slot. Before that (2026-10-22)
+   covers kept their real proportions, after 2:3 tiles that cropped them.
+   The keep-reading card keeps the real proportions; on phones it stacks (large
+   cover on top, info below): option B, picked by the user 2026-10-22 over a
+   bigger side-by-side cover (A) and fixed tiles with a blurred fill (C). */
 .grid { align-items:start; }
-.bookc .cover:has(img) { aspect-ratio:auto; background:none; }
+.bookc .cover { aspect-ratio:3/4; }
+.bookc .cover.sized { aspect-ratio:auto; background:none; width:calc(var(--cw) * 100%); margin:calc(var(--ct) * 100%) auto 0; }
 .cover:has(img) img { height:auto; object-fit:contain; }
 .cover.hero-cover:has(img) { aspect-ratio:auto; }
 @media (max-width:600px) {

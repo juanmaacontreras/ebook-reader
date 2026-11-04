@@ -4,6 +4,7 @@ const PATHS: Record<string, string> = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   back: '<path d="M15 18l-6-6 6-6"/>',
+  up: '<path d="M6 15l6-6 6 6"/>',
   close: '<path d="M18 6L6 18M6 6l12 12"/>',
   more: '<circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/>',
   list: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r=".8"/><circle cx="4" cy="12" r=".8"/><circle cx="4" cy="18" r=".8"/>',
