@@ -2,7 +2,7 @@
 
 Brainstorm of 2026-11-03: the user asked for everything Atril could do, whatever
 the effort. **Not planned work.** Build one only when the user asks for it, and
-check it against the user decisions in `CLAUDE.md` first. Ideas whose content
+check it against the user decisions in `docs/decisions.md` first. Ideas whose content
 comes from resumidor (study books, audiobooks, flashcards) have their resumidor
 side in `resumidor/IDEAS.md`.
 
@@ -124,7 +124,7 @@ not wanted.
   audiobook format, unknown.
 - **KOReader beside the stock reader** (research): full control, most of the
   above becomes plain code, for a plainer UI (option 2 of the 2026-10-27
-  ranking in `CLAUDE.md`).
+  ranking in `docs/decisions.md`).
 
 ## More places and people
 
