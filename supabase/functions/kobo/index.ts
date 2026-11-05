@@ -24,7 +24,7 @@
 
 import {
   type AtrilBook, type AtrilPosition, deviceTime, entitlement, type KepubMap, type KoboState, type Manifest,
-  metadata, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, START, startOf, statusChange,
+  metadata, offerNewer, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, START, startOf, statusChange,
   type SyncCursor, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
@@ -469,11 +469,14 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     if (!book) return toKobo(path, url)
     const known = kb.get(id)
     const pos = places.get(id)
-    const state = readingState(book, pos ?? null, map, { state: known?.state ?? null, device: dev.tag })
+    const own = { state: known?.state ?? null, device: dev.tag }
+    const plain = readingState(book, pos ?? null, map, own)
+    const state = offerNewer(plain, pos ?? null, own)
     await told(dev, [{ known, state }]).catch(e => console.error('kobo: told', e))
     const loc = state.CurrentBookmark?.Location
     const status = state.StatusInfo?.Status !== known?.state?.StatusInfo?.Status ? `, ${state.StatusInfo?.Status}` : ''
-    return { res: json([state]), note: (loc ? `sent ${loc.Value} in ${loc.Source} (from ${pos?.device ?? '?'})` : 'sent no place') + status }
+    const offered = state !== plain ? ', offered as new' : ''
+    return { res: json([state]), note: (loc ? `sent ${loc.Value} in ${loc.Source} (from ${pos?.device ?? '?'})` : 'sent no place') + offered + status }
   }
   if (path.startsWith('v1/library/tags')) {
     // Collections stay on the device; acknowledge so it doesn't retry.

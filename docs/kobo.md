@@ -68,6 +68,18 @@
   confirms them (download or a state report, `kobo_books.confirmed_at`): it
   ignores a *changed* entry for a book it never stored. Store sections on its
   home screen (deals, featured) come here too and get `{}`: they show empty.
+- **It dates its bookmark again on opening a book (2026-11-05)**, moved or not,
+  and takes a place from elsewhere only when it is dated after that. A place read
+  on the phone on the way home, sent dated by when it was read, was ignored on
+  opening the book at home (kobo_log 2026-11-04 19:40 and 11-05 17:05: "sent
+  kobo.87.1 (from 5eecb208)", then the device's "no change" on its old page); a
+  page turned on the phone afterwards, dated later, was taken. So `GET state`
+  hands a place from another device that the Kobo hasn't seen (newer than the
+  bookmark it last reported) dated a minute from now (`offerNewer`, logic.ts;
+  the log says "offered as new"); once it reports again it goes with its real
+  time, so a declined place isn't offered every minute. Status keeps its real
+  time (the `told` echo rule reads it). Not yet confirmed on the device: whether
+  a Kobo left open and idle after declining asks again each minute.
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
   bodies as sent, the place sent back on `GET state`, `ms` to answer; two
   weeks). Each request reads what it needs in one round of parallel queries,

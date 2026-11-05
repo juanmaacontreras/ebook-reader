@@ -1,7 +1,7 @@
 // deno test supabase/functions/kobo
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
-  deviceTime, fileFor, type KepubMap, type Manifest, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
+  deviceTime, fileFor, type KepubMap, type Manifest, offerNewer, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
   startOf, statusChange, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
@@ -141,6 +141,31 @@ Deno.test('reading state: a place from the phone goes to the Kobo', () => {
   const own = { CurrentBookmark: { Location: { Value: 'kobo.9.1' } }, StatusInfo: { Status: 'Reading' } }
   const back = readingState(book, { ...pos, device: 'kobo:1' }, map, { state: own, device: 'kobo:1' })
   assertEquals(back.CurrentBookmark.Location.Value, 'kobo.9.1')
+})
+
+Deno.test('a place the Kobo has not seen goes dated after its opening stamp', () => {
+  // kobo_log 2026-11-05: read on the phone at 19:34Z, the Kobo opened at home at
+  // 20:05Z (its last report: the night before) and kept its own page.
+  const book = { id: 'b', title: 'T', author: null, language: 'es', status: 'reading' as const, added_at: '2026-10-01T00:00:00Z', finished_at: null, updated_at: '2026-11-01T00:00:00Z' }
+  const pos = { section: 3, sentence: 2, fraction: 0.42, device: 'phone-1', updated_at: '2026-11-05T19:34:07.320Z' }
+  const lastNight = { CurrentBookmark: { LastModified: '2026-11-05T02:22:00Z', Location: { Value: 'kobo.285.1' } }, StatusInfo: { Status: 'Reading' } }
+  const own = { state: lastNight, device: 'kobo:1' }
+  const now = new Date('2026-11-05T20:05:04Z')
+  const s = offerNewer(readingState(book, pos, map, own), pos, own, now)
+  assertEquals(s.CurrentBookmark.LastModified, '2026-11-05T20:06:04Z')
+  assertEquals(s.LastModified, '2026-11-05T20:06:04Z')
+  assertEquals(s.PriorityTimestamp, '2026-11-05T20:06:04Z')
+  assertEquals(s.CurrentBookmark.Location.Value, 'kobo.3.1')  // the place itself is unchanged
+  assertEquals(s.StatusInfo.LastModified, '2026-11-05T19:34:07Z')  // status keeps its real time
+  // Reported since (opened, declined, read on): the real time, not offered again.
+  const since = { state: { ...lastNight, CurrentBookmark: { ...lastNight.CurrentBookmark, LastModified: '2026-11-05T20:05:03Z' } }, device: 'kobo:1' }
+  assertEquals(offerNewer(readingState(book, pos, map, since), pos, since, now).CurrentBookmark.LastModified, '2026-11-05T19:34:07Z')
+  // Never reported: offered. Its own place: handed back as it is.
+  const none = { state: null, device: 'kobo:1' }
+  assertEquals(offerNewer(readingState(book, pos, map, none), pos, none, now).CurrentBookmark.LastModified, '2026-11-05T20:06:04Z')
+  const mine = { ...pos, device: 'kobo:1' }
+  const back = readingState(book, mine, map, own)
+  assertEquals(offerNewer(back, mine, own, now), back)
 })
 
 Deno.test('sync token round trip; Kobo\'s own token starts over', () => {
