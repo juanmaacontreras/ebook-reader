@@ -220,6 +220,23 @@ export function readingState(book: AtrilBook, position: AtrilPosition | null, ma
   return state
 }
 
+// The Kobo takes a place from elsewhere only when it is dated after its own
+// bookmark, and it dates its bookmark again on opening a book, moved or not
+// (kobo_log 2026-11-04 and -05: a place read on the phone hours before, sent
+// when the book was opened at home, ignored; a page turned on the phone right
+// after, taken). So a place it hasn't seen yet (newer than the bookmark it last
+// reported) goes dated a minute from now: past anything it stamped on opening,
+// whatever its clock. Once it reports again (its bookmark now newer than the
+// place), the place goes with its real time, so it isn't offered every minute.
+export const OFFER_AHEAD_MS = 60_000
+export function offerNewer(state: KoboState, position: AtrilPosition | null, own: { state: KoboState | null; device: string }, now = new Date()): KoboState {
+  if (!position || position.device === own.device || !state.CurrentBookmark?.Location) return state
+  const reported = Date.parse(own.state?.CurrentBookmark?.LastModified ?? '')
+  if (reported >= Date.parse(position.updated_at)) return state
+  const at = koboTime(new Date(now.getTime() + OFFER_AHEAD_MS))
+  return { ...state, LastModified: at, PriorityTimestamp: at, CurrentBookmark: { ...state.CurrentBookmark, LastModified: at } }
+}
+
 export function metadata(book: AtrilBook, base: string, size: number | null): KoboState {
   return {
     Categories: ['00000000-0000-0000-0000-000000000001'],
