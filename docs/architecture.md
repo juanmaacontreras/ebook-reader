@@ -61,6 +61,19 @@ code failed 5 of the rules/stale checks and the ahead one) and
 `tools/kobo_e2e.py`. (`resize` passes with the old code too: the 3-chapter
 sample can't shift a page's first sentence.)
 
+**Links from other apps (2026-11-09).** `atril://book?sha256=<hex>[&listen=1]`
+opens a book from outside (Android only: an intent filter on `MainActivity`).
+The book is named by the SHA-256 of its EPUB, what the importer stores in
+`books.sha256` and Google Drive reports as `sha256Checksum`, so the brain app
+needs nothing of Atril's but the file it already lists: no shared database. A
+hash not known here triggers one full sync before giving up with "no está en tu
+biblioteca". Opening from a link is opening the book (never moves the shared
+place); `listen=1` sets the same `sessionStorage` flag as the library's Escuchar.
+A different EPUB file of the same book (re-exported, other edition) has another
+hash and does not match: by design, it is another file. Parser and contract
+fixture: `platform/links.ts`, `tests/links.test.ts`; cerebro-app tests the same
+fixture on its side.
+
 **Sync (client/src/data/sync.ts).** Offline-first: every change goes to
 IndexedDB with `_dirty`, then is pushed. Pull is incremental by the
 server-side `synced_at` (set by trigger), never by client clocks — an edit made

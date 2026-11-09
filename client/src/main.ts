@@ -9,6 +9,9 @@ import { checkForUpdate } from './platform/updater'
 import { isAndroid } from './platform'
 import { authScreen } from './screens/auth'
 import { libraryScreen } from './screens/library'
+import { parseBookLink, resolveBookLink } from './platform/links'
+import { toast } from './ui/dialog'
+import { t } from './strings'
 import { loadPrefs } from './settings'
 
 const root = document.getElementById('app')!
@@ -68,6 +71,10 @@ async function main(): Promise<void> {
   window.addEventListener('online', () => { void sync(); void restartRealtime() })
   setInterval(() => { if (!document.hidden) safetySync() }, 30_000)
   if (isAndroid) {
+    // Links from other apps (platform/links.ts): a cold start carries one as the
+    // launch URL, a running app gets it as appUrlOpen.
+    void App.getLaunchUrl().then(r => { if (r?.url) void openLink(r.url) })
+    void App.addListener('appUrlOpen', ({ url }) => void openLink(url))
     void App.addListener('backButton', ({ canGoBack }) => {
       if (document.querySelector('.overlay')) (document.querySelector('.overlay') as HTMLElement).click()
       else if (location.hash.startsWith('#/book/')) history.back()
@@ -78,6 +85,18 @@ async function main(): Promise<void> {
       if (isActive) { void sync(); startRealtime() } else { void flush(); void stopRealtime() }
     })
   }
+}
+
+async function openLink(url: string): Promise<void> {
+  const link = parseBookLink(url)
+  if (!link) return
+  const book = await resolveBookLink(link)
+  if (!book) { toast(t.linkNoBook, undefined, 5000); return }
+  // The reader clicks its own Escuchar when it finds this, like the library's button.
+  if (link.listen) sessionStorage.setItem('listen', '1')
+  const target = `#/book/${book.id}`
+  if (location.hash === target) void route()
+  else location.hash = target
 }
 
 void main()
