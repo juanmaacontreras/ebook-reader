@@ -3,6 +3,7 @@
     uv run python publish_book.py BOOK.epub                 # a new book; prints its id
     uv run python publish_book.py BOOK.epub --book <id>     # a corrected version of that book
     uv run python publish_book.py BOOK.epub --same-title    # replace the book with its title, else add
+    ... --subject "Sistemas de Comunicaciones"               # the subject it belongs to (for Bitácora)
 
 For books made elsewhere (resumidor's units: `resumidor/audiolibro/tools/a_atril.py`). The
 sentence manifest is built by the app's own code, headless (client/tools/analyze.tool.ts, in the
@@ -170,11 +171,23 @@ def publish(db: Supabase, epub_path: Path, book_id: str | None, work: Path, same
             "changed_sections": res.get("changed", [])}
 
 
+def set_subject(db: Supabase, book_id: str, subject: str) -> str:
+    """The subject a book belongs to: Bitácora counts its sessions as time of the activity with that
+    name (supabase/functions/bitacora, docs/bitacora.md). Kept apart from publishing so that a
+    database without the column yet still gets the book."""
+    try:
+        db.update("books", {"id": book_id}, {"subject": subject or None})
+        return "saved"
+    except Exception as e:  # noqa: BLE001 - reported, the book itself is already published
+        return f"not saved ({e}); apply supabase/schema.sql"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("epub", type=Path)
     ap.add_argument("--book", help="id of the book this EPUB replaces")
     ap.add_argument("--same-title", action="store_true", help="without --book: replace the one book with this EPUB's title, if any")
+    ap.add_argument("--subject", help="the subject the book belongs to (Bitácora adds its time to that activity)")
     a = ap.parse_args()
     load_env()
     url, key = supabase_config()
@@ -186,7 +199,10 @@ def main() -> None:
         if not db.signed_in():
             sys.exit("this PC is not linked: run the worker once and sign in")
         with tempfile.TemporaryDirectory(prefix="atril-publish-") as d:
-            print(json.dumps(publish(db, a.epub, a.book, Path(d), a.same_title), ensure_ascii=False))
+            res = publish(db, a.epub, a.book, Path(d), a.same_title)
+            if a.subject is not None:
+                res["subject"] = set_subject(db, res["id"], a.subject)
+            print(json.dumps(res, ensure_ascii=False))
     finally:
         if active:
             subprocess.run(["systemctl", "--user", "start", SERVICE])

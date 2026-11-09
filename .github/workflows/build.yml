@@ -52,6 +52,8 @@ jobs:
           deno-version: v2.5.6
       - name: Typecheck + unit tests (Kobo sync function)
         run: deno check --no-lock supabase/functions/kobo/index.ts && deno test --no-lock supabase/functions/kobo
+      - name: Typecheck + unit tests (Bitácora function)
+        run: deno check --no-lock supabase/functions/bitacora/index.ts && deno test --no-lock supabase/functions/bitacora
 
   android:
     needs: test

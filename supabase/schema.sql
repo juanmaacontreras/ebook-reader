@@ -294,6 +294,9 @@ create trigger log_delete after delete on public.books
 -- The KEPUB a Kobo reads (client/src/book/kepub.ts), set by the device that
 -- built it with a direct update; never part of a pushed row.
 alter table public.books add column if not exists kepub_path text;
+-- The subject a book belongs to (resumidor's units): Bitácora counts its sessions as time of
+-- that subject (docs/bitacora.md). Set by tts-worker/publish_book.py --subject.
+alter table public.books add column if not exists subject text;
 
 -- One row per Kobo. Only the SHA-256 of its token is kept.
 create table if not exists public.kobo_devices (
