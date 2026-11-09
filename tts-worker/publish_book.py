@@ -2,6 +2,7 @@
 
     uv run python publish_book.py BOOK.epub                 # a new book; prints its id
     uv run python publish_book.py BOOK.epub --book <id>     # a corrected version of that book
+    uv run python publish_book.py BOOK.epub --same-title    # replace the book with its title, else add
 
 For books made elsewhere (resumidor's units: `resumidor/audiolibro/tools/a_atril.py`). The
 sentence manifest is built by the app's own code, headless (client/tools/analyze.tool.ts, in the
@@ -23,13 +24,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -98,12 +102,28 @@ def upload_files(db: Supabase, out: Path, epub: bytes, meta: dict, p: dict[str, 
     return False
 
 
-def publish(db: Supabase, epub_path: Path, book_id: str | None, work: Path) -> dict[str, Any]:
+def epub_title(path: Path) -> str:
+    """dc:title from the package document, without parsing the whole book."""
+    with zipfile.ZipFile(path) as z:
+        container = z.read("META-INF/container.xml").decode("utf-8", "replace")
+        opf = re.search(r'full-path="([^"]+)"', container)
+        text = z.read(opf.group(1)).decode("utf-8", "replace") if opf else ""
+    m = re.search(r"<dc:title[^>]*>(.*?)</dc:title>", text, re.S)
+    return html.unescape(m.group(1).strip()) if m else ""
+
+
+def publish(db: Supabase, epub_path: Path, book_id: str | None, work: Path, same_title: bool = False) -> dict[str, Any]:
     epub = epub_path.read_bytes()
     sha = hashlib.sha256(epub).hexdigest()
     same = db.select("books", {"select": "id,title", "sha256": f"eq.{sha}"})
     if same:
         return {"id": same[0]["id"], "action": "unchanged", "title": same[0]["title"]}
+    if not book_id and same_title:
+        title = epub_title(epub_path)
+        named = db.select("books", {"select": "id,title", "title": f"eq.{title}"}) if title else []
+        if len(named) > 1:
+            sys.exit(f"{len(named)} books are titled {title!r}: pass --book with the id of the one to replace")
+        book_id = named[0]["id"] if named else None
     now = datetime.now(timezone.utc).isoformat()
     uid = db.user_id
 
@@ -154,6 +174,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("epub", type=Path)
     ap.add_argument("--book", help="id of the book this EPUB replaces")
+    ap.add_argument("--same-title", action="store_true", help="without --book: replace the one book with this EPUB's title, if any")
     a = ap.parse_args()
     load_env()
     url, key = supabase_config()
@@ -165,7 +186,7 @@ def main() -> None:
         if not db.signed_in():
             sys.exit("this PC is not linked: run the worker once and sign in")
         with tempfile.TemporaryDirectory(prefix="atril-publish-") as d:
-            print(json.dumps(publish(db, a.epub, a.book, Path(d)), ensure_ascii=False))
+            print(json.dumps(publish(db, a.epub, a.book, Path(d), a.same_title), ensure_ascii=False))
     finally:
         if active:
             subprocess.run(["systemctl", "--user", "start", SERVICE])

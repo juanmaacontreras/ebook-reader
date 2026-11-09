@@ -66,14 +66,14 @@ class PublishTests(unittest.TestCase):
         self.epub.write_bytes(b"epub-bytes")
         self.analyzed = []
 
-    def run_publish(self, db, book_id, result):
+    def run_publish(self, db, book_id, result, same_title=False):
         def fake(epub, out, old=None):
             self.analyzed.append(old)
             return result
         orig = publish_book.analyze
         publish_book.analyze = fake
         try:
-            return publish_book.publish(db, self.epub, book_id, self.work)
+            return publish_book.publish(db, self.epub, book_id, self.work, same_title)
         finally:
             publish_book.analyze = orig
 
@@ -118,6 +118,15 @@ class PublishTests(unittest.TestCase):
         self.assertIn(("delete", "narration_chapters", {"book_id": BOOK, "section": "3"}), db.calls)
         self.assertIn(("remove", "library", (f"{UID}/{BOOK}/book.kepub.epub", f"{UID}/{BOOK}/kepub.json")), db.calls)
         self.assertEqual((r["highlights_moved"], r["highlights_lost"], r["audio_removed"]), (1, 1, [3]))
+
+    def test_same_title_replaces_the_book_imported_by_hand(self):
+        import zipfile
+        with zipfile.ZipFile(self.epub, "w") as z:
+            z.writestr("META-INF/container.xml", '<rootfile full-path="OEBPS/content.opf"/>')
+            z.writestr("OEBPS/content.opf", "<metadata><dc:title>SHyMA &#8212; Segundo parcial</dc:title></metadata>")
+        db = FakeDb({"books": [{"id": BOOK, "user_id": UID, "title": "SHyMA \u2014 Segundo parcial", "sha256": "old", "text_path": "t"}]})
+        r = self.run_publish(db, None, {"meta": META, "changed": [], "position": None, "highlights": []}, same_title=True)
+        self.assertEqual((r["id"], r["action"]), (BOOK, "replaced"))
 
 
 if __name__ == "__main__":
