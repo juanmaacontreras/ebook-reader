@@ -27,6 +27,7 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     sentences.ts          sentence segmentation — shared by import (manifest) and reader (highlight/tap)
     manifest.ts           builds the per-book sentence manifest (CFI + text per sentence)
     importer.ts           EPUB import: hash, metadata, cover, manifest, local save → sync uploads
+    remap.ts              a replaced book: place and highlights moved to the same text in the new version
     kepub.ts              the book as a Kobo reads it: manifest sentences wrapped in koboSpans (see "Kobo")
     bookStyles.ts         CSS injected into the book (light/sepia/dark reading themes, fonts, spacing)
   src/audio/
@@ -45,6 +46,8 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
   src-tauri/              Tauri desktop shell (updater + process plugins only)
   tests/                  vitest (jsdom): segmentation, CFI round trip, manifest of the sample EPUB, sessions, places
   tests/fixtures/muestra.epub   small Spanish EPUB (regenerate: tests/make_sample_epub.py)
+  tests/fixtures/muestra-corregida.epub   the same with a paragraph added to chapter 1 (remap tests)
+  tools/analyze.tool.ts   headless import half of publish_book.py (run by it, in the tests' jsdom)
 tts-worker/               narration worker for the PC (Python 3.12, uv)
   worker/main.py          the loop (heartbeat, sweep finished books, pick chapter, generate, upload)
   worker/narrate.py       chapter → audio + sentence timings (chunk cache, QC retries)
@@ -52,6 +55,7 @@ tts-worker/               narration worker for the PC (Python 3.12, uv)
   worker/asr.py           faster-whisper round trip: QC + sentence starts inside a chunk
   worker/align.py         manifest sentences ↔ Whisper words of an external narration (stdlib, tested in CI)
   import_audio.py         attach audio made elsewhere (resumidor's XTTS mp3s) to a book: transcribe, align, upload
+  publish_book.py         add an EPUB without the app, or replace a book's EPUB keeping place and highlights
   worker/audio.py         trimming, pauses, Ogg Opus 32 kbps mono (PyAV)
   worker/engines/         kokoro_engine.py, chatterbox_engine.py (+ registry in __init__.py)
   worker/supa.py          Supabase Auth/PostgREST/Storage client (signs in as the user)

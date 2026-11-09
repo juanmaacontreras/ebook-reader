@@ -11,7 +11,8 @@ Effort: **quick** = most pieces exist · **project** = days to weeks ·
 
 ## Studying
 
-- **Resumidor books in one step** (quick). On 2026-11-03 it took: resumidor's
+- **Resumidor books in one step** (quick). **Built 2026-11-09** (`tts-worker/publish_book.py`,
+  see "Books replaced in place"); kept here for the history. On 2026-11-03 it took: resumidor's
   `epub.py` → the user imports the EPUB in the desktop app (the manifest is built
   client-side) → stop the worker → `import_audio.py attach` → start it again.
   Missing on Atril's side: a headless import (build `text.json.gz` with

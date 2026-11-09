@@ -74,6 +74,22 @@ hash and does not match: by design, it is another file. Parser and contract
 fixture: `platform/links.ts`, `tests/links.test.ts`; cerebro-app tests the same
 fixture on its side.
 
+**Books replaced in place (2026-11-09).** `tts-worker/publish_book.py BOOK.epub
+[--book ID]` puts an EPUB in the library without the app, or replaces a book's
+EPUB keeping its id (resumidor's corrected units). The manifest comes from the
+app's own code run headless (`client/tools/analyze.tool.ts`, in the tests'
+jsdom; needs Node and `client/node_modules`). A replacement moves the place and
+the highlights to the same text in the new version (`book/remap.ts`: same
+sentence, told apart by chapter and the sentence before; a rewritten one falls
+to the same share of its chapter); the place is written with `base` = the place
+it read, so a move made meanwhile wins. Highlights not found stay untouched.
+Narration chapters whose sentences changed are deleted with their audio (the
+deletion log reaches devices); the KEPUB is dropped so a device rebuilds it.
+Devices see the new `sha256` on pull and drop their copies of the EPUB, cover
+and manifest (`merge` in sync.ts). Known gap: a device pushing an edit of the
+book row made before it pulled the replacement (newer `updated_at`) writes the
+old hash back; files are the new ones regardless, only links by hash miss.
+
 **Sync (client/src/data/sync.ts).** Offline-first: every change goes to
 IndexedDB with `_dirty`, then is pushed. Pull is incremental by the
 server-side `synced_at` (set by trigger), never by client clocks — an edit made
