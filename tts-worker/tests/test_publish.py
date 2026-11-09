@@ -129,5 +129,15 @@ class PublishTests(unittest.TestCase):
         self.assertEqual((r["id"], r["action"]), (BOOK, "replaced"))
 
 
+    def test_subject_is_saved_and_a_missing_column_does_not_fail_the_publish(self):
+        db = FakeDb({})
+        self.assertEqual(publish_book.set_subject(db, BOOK, "Sistemas de Comunicaciones"), "saved")
+        self.assertIn(("update", "books", {"id": BOOK}, {"subject": "Sistemas de Comunicaciones"}), db.calls)
+
+        class NoColumn(FakeDb):
+            def update(self, table, match, values):
+                raise RuntimeError("column books.subject does not exist")
+        self.assertTrue(publish_book.set_subject(NoColumn({}), BOOK, "X").startswith("not saved"))
+
 if __name__ == "__main__":
     unittest.main()

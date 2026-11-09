@@ -74,6 +74,7 @@ claude-budget  # startup context, must stay < 3000 tokens
 | changing a behavior the user chose (check the dated log first) | `docs/decisions.md` |
 | debugging taps, silent narration, GPU OOM; what is unconfirmed on devices | `docs/state-and-gotchas.md` |
 | anything Kobo (protocol, KEPUB, sync rules, security, deploy) | `docs/kobo.md` |
+| sessions sent to Bitácora (contract, function, cron, `books.subject`) | `docs/bitacora.md` |
 | proposing new features | `docs/roadmap.md`, `IDEAS.md` |
 
 New decisions go into the matching `docs/` file (the dated log in

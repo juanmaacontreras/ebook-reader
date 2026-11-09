@@ -306,3 +306,9 @@
   own code in jsdom (`client/tools/analyze.tool.ts`), never by a second segmenter.
   Matching a resumidor unit to its book is resumidor's job (it stores the id). See
   "Books replaced in place".
+- 2026-11-09: **sessions go to Bitácora** (ecosystem phase 7; three variants rendered on
+  Bitácora's Día view, user: "Dale, la C"). A book adds to its subject: the time of a
+  resumidor book counts as that subject's activity, any other book as its own activity.
+  Atril publishes an inbox row in Bitácora's database every 15 minutes (Edge Function
+  `bitacora`, pg_cron) and Bitácora merges it with its own logic; neither reads the
+  other's tables. See docs/bitacora.md.
