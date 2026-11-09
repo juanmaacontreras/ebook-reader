@@ -292,3 +292,9 @@
   everything; a middle tap while unfolded only folds (no seek); folded, a middle
   tap seeks as before. Checked in headless Chromium (`?demo`, silent narration
   seeded): bar top 14 px below the text, fold/unfold/hold/seek/pause/close.
+- 2026-11-09: **links from the brain app** (ecosystem phase 6, user: "mandale,
+  sin miedo"). `atril://book?sha256=…&listen=1` opens the book and, with
+  `listen=1`, presses Escuchar. Identity by EPUB hash, not by Atril's book id,
+  so cerebro-app never reads Atril's data (ecosystem rule 4). Opening to a given
+  chapter is left for the resumidor package, which will say which chapter is
+  which unit; nobody can produce that link yet. See "Links from other apps".

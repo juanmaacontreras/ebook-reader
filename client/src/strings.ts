@@ -75,6 +75,7 @@ export const t = {
   bookEndYes: 'Sí, marcar como terminado',
   openFailed: 'No pude abrir este libro.',
   needDownload: 'Este libro todavía no está en este dispositivo.',
+  linkNoBook: 'Ese libro no está en tu biblioteca de Atril. Importalo desde la PC.',
 
   // Reading settings
   theme: 'Tema',

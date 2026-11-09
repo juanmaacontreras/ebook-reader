@@ -22,6 +22,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Links from other apps: atril://book?sha256=...&listen=1 (src/platform/links.ts) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="atril" android:host="book" />
+            </intent-filter>
+
         </activity>
 
         <!-- Narration playback (Media3). See PlaybackService.java. -->
