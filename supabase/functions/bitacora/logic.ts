@@ -40,9 +40,20 @@ export function buildInbox(sessions: SessionRow[], books: BookRow[], profile: st
   return { v: VERSION, profile, books: bookList, sessions: out }
 }
 
+/** JSON with object keys sorted: Postgres keeps jsonb keys in its own order, so the row read
+ *  back never matches JSON.stringify of what was written. */
+export function canonical(x: unknown): string {
+  if (Array.isArray(x)) return `[${x.map(canonical).join(',')}]`
+  if (x && typeof x === 'object') {
+    const o = x as Record<string, unknown>
+    return `{${Object.keys(o).sort().map(k => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`
+  }
+  return JSON.stringify(x ?? null)
+}
+
 /** Same content: writing it again would only wake Bitácora's devices for nothing. */
 export function sameInbox(a: unknown, b: Inbox): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b)
+  return canonical(a) === canonical(b)
 }
 
 /** Oldest start sent: sessions older than this stay in Bitácora but leave the inbox. */

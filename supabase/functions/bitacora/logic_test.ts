@@ -34,6 +34,10 @@ Deno.test('the same data gives the same inbox, in any order: nothing to write', 
   const b = buildInbox([row('s2', 'b2', '2026-11-09T18:00:00Z'), row('s1', 'b1', '2026-11-09T11:15:00Z')], [...books].reverse(), 'default')
   assertEquals(sameInbox(JSON.parse(JSON.stringify(a)), b), true)
   assertEquals(sameInbox(null, b), false)
+  // Read back from jsonb, keys come in Postgres's order (shorter first): still the same.
+  const reordered = JSON.parse(JSON.stringify({ sessions: a.sessions.map(s => ({ updatedAt: s.updatedAt, id: s.id, kind: s.kind,
+    start: s.start, bookId: s.bookId, seconds: s.seconds })), v: a.v, books: a.books, profile: a.profile }))
+  assertEquals(sameInbox(reordered, b), true)
   assertEquals(sameInbox(a, buildInbox([row('s1', 'b1', '2026-11-09T11:15:00Z', 900)], books, 'default')), false)
 })
 
