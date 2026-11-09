@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
+import { unzipSync } from 'fflate'
 import { expect, test } from 'vitest'
 import * as CFI from 'foliate-js/epubcfi.js'
 import { bookLanguage, contributors, languageMap } from '../src/book/importer'
@@ -32,11 +33,14 @@ test('analyze', async () => {
   const lang = bookLanguage(fb)
   const manifest = await buildManifest(fb, lang.split('-')[0])
   writeFileSync(join(job.out, 'text.json.gz'), gzipSync(JSON.stringify(manifest)))  // jsdom's Blob has no streams
-  const cover = await fb.getCover?.().catch(() => null)
+  // The cover straight from the archive, at the href foliate picks (getCover's Blob mixes
+  // Node's and jsdom's Blob classes here and reads back as the text "[object Blob]").
+  const res = (fb as unknown as { resources?: { cover?: { href: string; mediaType: string } } }).resources
   let coverType: string | null = null
-  if (cover) {
-    coverType = cover.type || 'image/jpeg'
-    writeFileSync(join(job.out, 'cover'), Buffer.from(await new Response(cover).arrayBuffer()))
+  const cover = res?.cover?.href ? unzipSync(new Uint8Array(raw), { filter: f => f.name === res.cover!.href })[res.cover.href] : null
+  if (cover?.length) {
+    coverType = res!.cover!.mediaType || 'image/jpeg'
+    writeFileSync(join(job.out, 'cover'), cover)
   }
   const result: Record<string, unknown> = {
     meta: {
