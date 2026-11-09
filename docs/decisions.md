@@ -298,3 +298,11 @@
   so cerebro-app never reads Atril's data (ecosystem rule 4). Opening to a given
   chapter is left for the resumidor package, which will say which chapter is
   which unit; nobody can produce that link yet. See "Links from other apps".
+- 2026-11-09: **books published and replaced without the app** (ecosystem phase 6, user:
+  "quiero el proyecto cerebro andando al 100%"). `tts-worker/publish_book.py` adds an EPUB
+  or replaces a book's EPUB in place, keeping its id: place and highlights move by their
+  text, a highlight whose text is gone stays as it was (never deleted), the audio of
+  changed chapters is removed (timings no longer fit). The manifest is built by the app's
+  own code in jsdom (`client/tools/analyze.tool.ts`), never by a second segmenter.
+  Matching a resumidor unit to its book is resumidor's job (it stores the id). See
+  "Books replaced in place".

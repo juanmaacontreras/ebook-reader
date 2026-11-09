@@ -317,6 +317,10 @@ async function merge(spec: Spec, row: Record<string, unknown>): Promise<boolean>
     await db.put(spec.store, { ...current, ...patch })
     return true
   }
+  // A book replaced in place (a corrected EPUB, tts-worker/publish_book.py) keeps its id and
+  // paths but not its hash: this device's copies of the old files go, so the new ones download.
+  if (spec.table === 'books' && current && current.sha256 !== row.sha256)
+    for (const kind of ['epub', 'cover', 'text']) await local.del(`${kind}:${row.id}`)
   // Keep local-only fields (a chapter's downloaded timings, for instance).
   await db.put(spec.store, { ...(current ?? {}), ...row, _dirty: false })
   return true
