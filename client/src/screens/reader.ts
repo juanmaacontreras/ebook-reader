@@ -49,15 +49,14 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const footRight = h('span.num', '')
   const stage = h('div.stage')
   const dock = h('div.bottomdock')
-  // Search: three designs while the user picks (?variant=a|b|c, see docs/design.md).
-  const searchVariant = document.documentElement.dataset.variant ?? 'a'
+  // Search (the manifest loads further down).
   const manifestRef: { m: Awaited<ReturnType<typeof loadManifest>> } = { m: null }
   let goHit: (hits: Hit[], k: number) => void = () => {}
   const listenBtn = h('button.iconbtn.flat', { title: t.listen, 'aria-label': t.listen }, icon('headphones'))
   const topbar = h('div.rbar.top',
     h('button.iconbtn.flat', { 'aria-label': t.back, onclick: () => goBack() }, icon('back')),
     h('div.rtitle', titleEl, chapterEl),
-    searchVariant === 'b' ? null : h('button.iconbtn.flat', { title: t.searchBook, 'aria-label': t.searchBook, onclick: () => openSearch(manifestRef.m, goHit) }, icon('search')),
+    h('button.iconbtn.flat', { title: t.searchBook, 'aria-label': t.searchBook, onclick: () => openSearch(manifestRef.m, goHit) }, icon('search')),
     h('button.iconbtn.flat', { title: t.contents, 'aria-label': t.contents, onclick: () => showToc() }, icon('list')),
     h('button.iconbtn.flat', { title: t.highlights, 'aria-label': t.highlights, onclick: () => openHighlightsPanel(book.id, () => {}, cfi => void jumpTo(() => view.goTo(cfi))) }, icon('highlight')),
     h('button.iconbtn.flat', { title: t.readingSettings, 'aria-label': t.readingSettings, onclick: () => openReadingSettings() }, icon('type')),
@@ -483,16 +482,13 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     else await showPlayer()
   }
 
-  const showToc = () => openToc(view, narr, chapterEl.textContent ?? '', href => void jumpTo(() => view.goTo(href)),
-    searchVariant === 'b' ? { manifest, pick: (hits, k) => goHit(hits, k) } : undefined)
+  const showToc = () => openToc(view, narr, chapterEl.textContent ?? '', href => void jumpTo(() => view.goTo(href)))
 
   // ---- Search ------------------------------------------------------------------
-  // The sentence found is marked on the page. Variant c keeps a pill to go on to
-  // the next or the previous one; a and b drop the mark after a while.
+  // The sentence found is marked on the page, and a pill stays to go on to the
+  // next or the previous one until it is closed (user decision 2026-11-10).
   let findCfi: string | null = null
-  let findTimer: number | undefined
   const clearFind = async () => {
-    clearTimeout(findTimer)
     findPill.hidden = true
     if (findCfi) { const c = findCfi; findCfi = null; await view.deleteAnnotation({ value: c }) }
   }
@@ -502,7 +498,6 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     await jumpTo(() => view.goTo(x.cfi))
     findCfi = x.cfi
     await view.addAnnotation({ value: x.cfi, kind: 'find' } as Annotation)
-    if (searchVariant !== 'c') { findTimer = window.setTimeout(() => void clearFind(), 8000); return }
     const step = (d: number) => goHit(hits, (k + d + hits.length) % hits.length)
     findPill.replaceChildren(
       h('button.iconbtn.flat', { 'aria-label': t.searchPrev, onclick: () => step(-1) }, icon('back')),
@@ -556,7 +551,6 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     offChange()
     document.removeEventListener('keydown', onKey)
     clearTimeout(hideTimer)
-    clearTimeout(findTimer)
     window.removeEventListener('pointerup', release, true)
     window.removeEventListener('pointercancel', release, true)
     void narr?.destroy()

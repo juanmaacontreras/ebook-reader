@@ -10,7 +10,7 @@ export highlights/vocabulary to Markdown/PDF/flashcards (highlights carry text,
 chapter, note, CFI); sleep timer (end of chapter = the controller's `track`
 event; X minutes = timer + pause); reading stats (positions already log
 device + time; add a sessions table); bookmarks (same shape as highlights with
-a kind); full-text search (foliate-js `search.js` via `view.search()`); Kobo
+a kind); ~~full-text search~~ (built 2026-11-10 over the manifest, `book/search.ts`); Kobo
 highlights (their location is our koboSpan ids, so they map to sentences
 directly; see the 2026-11-02 decision for how to receive them). Out of scope: store, social, non-EPUB formats.
 
