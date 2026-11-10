@@ -3,7 +3,8 @@
 // also carries the reading place and the highlights over by their text (book/remap.ts).
 // Run: ATRIL_JOB=job.json node node_modules/vitest/vitest.mjs run --config tools/vitest.config.ts
 //   job.json: { epub, out, old?: { manifest (gz path), position?: Place, highlights?: [{id,text,section}] } }
-//   out/: text.json.gz, cover.<ext>, result.json { meta, position, highlights, changed }
+//   out/: text.json.gz, cover.<ext>, book.kepub.epub + kepub.json (the book as a Kobo reads it,
+//         meta.kepub says whether they were built), result.json { meta, position, highlights, changed }
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,6 +13,7 @@ import { unzipSync } from 'fflate'
 import { expect, test } from 'vitest'
 import * as CFI from 'foliate-js/epubcfi.js'
 import { bookLanguage, contributors, languageMap } from '../src/book/importer'
+import { buildKepub } from '../src/book/kepub'
 import { buildManifest } from '../src/book/manifest'
 import { changedSections, findText, remapPlace, type Place } from '../src/book/remap'
 import type { Manifest } from '../src/data/types'
@@ -42,6 +44,14 @@ test('analyze', async () => {
     coverType = res!.cover!.mediaType || 'image/jpeg'
     writeFileSync(join(job.out, 'cover'), cover)
   }
+  // The KEPUB too, so the book reaches the Kobo (and stays on it when replaced) without waiting
+  // for a device to build it (data/kepubs.ts). A fresh book: buildKepub edits its documents.
+  const file = new File([raw], 'book.epub', { type: 'application/epub+zip' })
+  const built = await buildKepub(file, await makeBook(file), manifest)
+  if (built) {
+    writeFileSync(join(job.out, 'book.kepub.epub'), new Uint8Array(await built.kepub.arrayBuffer()))
+    writeFileSync(join(job.out, 'kepub.json'), JSON.stringify(built.map))
+  }
   const result: Record<string, unknown> = {
     meta: {
       sha256: createHash('sha256').update(raw).digest('hex'),
@@ -51,6 +61,7 @@ test('analyze', async () => {
       size_bytes: raw.byteLength,
       section_count: fb.sections.length,
       cover_type: coverType,
+      kepub: !!built,
     },
   }
   if (job.old) {

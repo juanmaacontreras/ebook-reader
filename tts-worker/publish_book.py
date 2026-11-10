@@ -14,7 +14,8 @@ with it: the place and the highlights are moved by their text to where they are 
 version (client/src/book/remap.ts); a highlight whose text is gone is left as it was and
 counted. The narration of chapters whose sentences changed is removed (its timings no longer
 fit): attach the new audio of those chapters again (import_audio.py). Devices notice the new
-hash on their next sync and download the new files (sync.ts, merge); the Kobo's KEPUB is rebuilt.
+hash on their next sync and download the new files (sync.ts, merge). The KEPUB (the book as a
+Kobo reads it) is built here too, so the book never drops out of the Kobo's sync meanwhile.
 
 Needs Node (to run the analyzer) and client/node_modules (`npm ci` in client/). Signs in with the
 worker's session (.session.json); since the refresh token rotates, a running atril-tts service is
@@ -70,21 +71,21 @@ def paths(uid: str, book: str) -> dict[str, str]:
             "kepub": f"{base}/book.kepub.epub", "kepub_map": f"{base}/kepub.json"}
 
 
-def book_row(meta: dict, uid: str, book_id: str, now: str, cover: bool) -> dict[str, Any]:
+def book_row(meta: dict, uid: str, book_id: str, now: str, cover: bool, kepub: str | None = None) -> dict[str, Any]:
     p = paths(uid, book_id)
     return {"id": book_id, "user_id": uid, "sha256": meta["sha256"], "title": meta["title"] or "Sin título",
             "author": meta["author"], "language": meta["language"], "storage": "supabase",
             "epub_path": p["epub"], "cover_path": p["cover"] if cover else None, "text_path": p["text"],
             "size_bytes": meta["size_bytes"], "section_count": meta["section_count"],
-            "status": "to_read", "added_at": now, "finished_at": None, "updated_at": now}
+            "kepub_path": kepub, "status": "to_read", "added_at": now, "finished_at": None, "updated_at": now}
 
 
-def replaced_row(meta: dict, book: dict, now: str, cover: bool) -> dict[str, Any]:
+def replaced_row(meta: dict, book: dict, now: str, cover: bool, kepub: str | None = None) -> dict[str, Any]:
     """What changes in a book row replaced in place: the file's identity, never the user's state."""
     return {"sha256": meta["sha256"], "title": meta["title"] or book["title"], "author": meta["author"],
             "language": meta["language"], "size_bytes": meta["size_bytes"], "section_count": meta["section_count"],
             "cover_path": paths(book["user_id"], book["id"])["cover"] if cover else book.get("cover_path"),
-            "kepub_path": None, "updated_at": now}
+            "kepub_path": kepub, "updated_at": now}
 
 
 def moved_place(pos: dict, new: dict, now: str) -> dict[str, Any]:
@@ -101,6 +102,19 @@ def upload_files(db: Supabase, out: Path, epub: bytes, meta: dict, p: dict[str, 
         db.upload("library", p["cover"], (out / "cover").read_bytes(), meta["cover_type"])
         return True
     return False
+
+
+def upload_kepub(db: Supabase, out: Path, meta: dict, p: dict[str, str], replacing: bool = False) -> str | None:
+    """The KEPUB and its map, when the analyzer built them: the path for books.kepub_path, which is
+    what offers the book to the Kobo (supabase/functions/kobo). None: left for a device to build
+    (client/src/data/kepubs.ts), and any older one is removed (its sentences are the old book's)."""
+    if not meta.get("kepub"):
+        if replacing:
+            db.remove("library", [p["kepub"], p["kepub_map"]])
+        return None
+    db.upload("library", p["kepub"], (out / "book.kepub.epub").read_bytes(), "application/epub+zip")
+    db.upload("library", p["kepub_map"], (out / "kepub.json").read_bytes(), "application/json")
+    return p["kepub"]
 
 
 def epub_title(path: Path) -> str:
@@ -132,7 +146,8 @@ def publish(db: Supabase, epub_path: Path, book_id: str | None, work: Path, same
         res = analyze(epub_path, work)
         new_id = str(uuid.uuid4())
         cover = upload_files(db, work, epub, res["meta"], paths(uid, new_id))
-        db.upsert("books", book_row(res["meta"], uid, new_id, now, cover), "id")
+        kepub = upload_kepub(db, work, res["meta"], paths(uid, new_id))
+        db.upsert("books", book_row(res["meta"], uid, new_id, now, cover, kepub), "id")
         return {"id": new_id, "action": "added", "title": res["meta"]["title"]}
 
     rows = db.select("books", {"select": "*", "id": f"eq.{book_id}"})
@@ -149,8 +164,8 @@ def publish(db: Supabase, epub_path: Path, book_id: str | None, work: Path, same
     })
     p = paths(book["user_id"], book_id)
     cover = upload_files(db, work, epub, res["meta"], p)
-    db.remove("library", [p["kepub"], p["kepub_map"]])  # rebuilt from the new EPUB by a device
-    db.update("books", {"id": book_id}, replaced_row(res["meta"], book, now, cover))
+    kepub = upload_kepub(db, work, res["meta"], p, replacing=True)
+    db.update("books", {"id": book_id}, replaced_row(res["meta"], book, now, cover, kepub))
     if pos and res.get("position"):
         db.upsert("positions", moved_place(pos, res["position"], now), "book_id")
     lost = 0

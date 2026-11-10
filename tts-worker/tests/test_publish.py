@@ -90,6 +90,32 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(row["epub_path"], f"{UID}/{r['id']}/book.epub")
         self.assertEqual(row["text_path"], f"{UID}/{r['id']}/text.json.gz")
         self.assertEqual((row["status"], row["cover_path"]), ("to_read", None))
+        self.assertIsNone(row["kepub_path"])  # the analyzer built none: a device will
+        self.assertEqual([c for c in db.calls if c[0] == "remove"], [])
+
+    def with_kepub(self):
+        (self.work / "book.kepub.epub").write_bytes(b"kepub")
+        (self.work / "kepub.json").write_bytes(b"{}")
+        return {**META, "kepub": True}
+
+    def test_new_book_goes_with_its_kepub_so_the_kobo_gets_it_without_the_app(self):
+        db = FakeDb({})
+        r = self.run_publish(db, None, {"meta": self.with_kepub()})
+        row = [c for c in db.calls if c[0] == "upsert"][0][2]
+        self.assertEqual(row["kepub_path"], f"{UID}/{r['id']}/book.kepub.epub")
+        uploads = [c[2] for c in db.calls if c[0] == "upload"]
+        self.assertIn(f"{UID}/{r['id']}/book.kepub.epub", uploads)
+        self.assertIn(f"{UID}/{r['id']}/kepub.json", uploads)
+
+    def test_replaced_book_keeps_a_kepub_all_along(self):
+        db = FakeDb({"books": [{"id": BOOK, "user_id": UID, "title": "SHyMA", "sha256": "old", "text_path": "t", "cover_path": None}]})
+        self.run_publish(db, BOOK, {"meta": self.with_kepub(), "changed": [], "position": None, "highlights": []})
+        book = [c for c in db.calls if c[0] == "update" and c[1] == "books"][0][3]
+        self.assertEqual(book["kepub_path"], f"{UID}/{BOOK}/book.kepub.epub")
+        self.assertEqual([c for c in db.calls if c[0] == "remove" and c[1] == "library"], [])
+        # the new files are in place before the row says so
+        order = [c[0] for c in db.calls if c[0] == "upload" or (c[0] == "update" and c[1] == "books")]
+        self.assertEqual(order[-1], "update")
 
     def test_replace_moves_place_and_highlights_and_drops_changed_audio(self):
         db = FakeDb({
