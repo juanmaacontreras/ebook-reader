@@ -3,6 +3,7 @@ import type { Location, View } from 'foliate-js/view.js'
 import { Overlayer } from 'foliate-js/overlayer.js'
 import { NarrationController } from '../audio/controller'
 import { bookCss, MARGIN_GAP, palette } from '../book/bookStyles'
+import type { Hit } from '../book/search'
 import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentences'
 import { loadManifest } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
@@ -24,9 +25,10 @@ import { ensureEpub } from './library'
 import { openNarrationSheet } from './narration'
 import { playerCard, type PlayerCard } from './player'
 import { openReadingSettings } from './readingSettings'
+import { openSearch } from './search'
 import { openToc } from './toc'
 
-interface Annotation { value: string; color?: string; kind?: 'tts' | 'hl'; id?: string }
+interface Annotation { value: string; color?: string; kind?: 'tts' | 'hl' | 'find'; id?: string }
 // A touch counts as a tap if the finger moved at most this many px, this fast.
 const TAP_SLOP = 12
 const TAP_MS = 450
@@ -47,15 +49,20 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const footRight = h('span.num', '')
   const stage = h('div.stage')
   const dock = h('div.bottomdock')
+  // Search (the manifest loads further down).
+  const manifestRef: { m: Awaited<ReturnType<typeof loadManifest>> } = { m: null }
+  let goHit: (hits: Hit[], k: number) => void = () => {}
   const listenBtn = h('button.iconbtn.flat', { title: t.listen, 'aria-label': t.listen }, icon('headphones'))
   const topbar = h('div.rbar.top',
     h('button.iconbtn.flat', { 'aria-label': t.back, onclick: () => goBack() }, icon('back')),
     h('div.rtitle', titleEl, chapterEl),
+    h('button.iconbtn.flat', { title: t.searchBook, 'aria-label': t.searchBook, onclick: () => openSearch(manifestRef.m, goHit) }, icon('search')),
     h('button.iconbtn.flat', { title: t.contents, 'aria-label': t.contents, onclick: () => showToc() }, icon('list')),
     h('button.iconbtn.flat', { title: t.highlights, 'aria-label': t.highlights, onclick: () => openHighlightsPanel(book.id, () => {}, cfi => void jumpTo(() => view.goTo(cfi))) }, icon('highlight')),
     h('button.iconbtn.flat', { title: t.readingSettings, 'aria-label': t.readingSettings, onclick: () => openReadingSettings() }, icon('type')),
     listenBtn)
-  const shell = h('div.reader.chrome-off', stage, topbar, dock, h('div.rfoot', footLeft, footRight))
+  const findPill = h('div.findpill', { hidden: true })
+  const shell = h('div.reader.chrome-off', stage, topbar, dock, findPill, h('div.rfoot', footLeft, footRight))
   root.replaceChildren(shell)
   const loading = h('div.empty', { style: 'margin:auto' }, h('div.spinner', { style: 'margin:0 auto 12px' }), t.downloading)
   stage.append(loading)
@@ -70,6 +77,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   }
   const manifest = await loadManifest(book)
   const lang = manifest?.lang ?? (book.language ?? 'es').split('-')[0]
+  manifestRef.m = manifest
 
   const view = document.createElement('foliate-view') as View
   stage.replaceChildren(view)
@@ -239,10 +247,12 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   view.addEventListener('create-overlay', ((e: CustomEvent<{ index: number }>) => {
     for (const x of hlByCfi.values()) if (x.section === e.detail.index) void view.addAnnotation({ value: x.cfi, color: x.color, kind: 'hl', id: x.id } as Annotation)
     if (ttsCfi) void view.addAnnotation({ value: ttsCfi, kind: 'tts' } as Annotation)
+    if (findCfi) void view.addAnnotation({ value: findCfi, kind: 'find' } as Annotation)
   }) as EventListener)
   view.addEventListener('draw-annotation', ((e: CustomEvent<{ draw: (f: unknown, o: unknown) => void; annotation: Annotation }>) => {
     const { draw, annotation } = e.detail
     if (annotation.kind === 'tts') draw(Overlayer.highlight, { color: palette(prefs().bookTheme).sentence })
+    else if (annotation.kind === 'find') draw(Overlayer.highlight, { color: getComputedStyle(document.documentElement).getPropertyValue('--paused').trim() })
     else draw(Overlayer.highlight, { color: getComputedStyle(document.documentElement).getPropertyValue(HL_VAR[(annotation.color ?? 'yellow') as HighlightColor]).trim() })
   }) as EventListener)
   view.addEventListener('show-annotation', ((e: CustomEvent<{ value: string }>) => {
@@ -473,6 +483,29 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   }
 
   const showToc = () => openToc(view, narr, chapterEl.textContent ?? '', href => void jumpTo(() => view.goTo(href)))
+
+  // ---- Search ------------------------------------------------------------------
+  // The sentence found is marked on the page, and a pill stays to go on to the
+  // next or the previous one until it is closed (user decision 2026-11-10).
+  let findCfi: string | null = null
+  const clearFind = async () => {
+    findPill.hidden = true
+    if (findCfi) { const c = findCfi; findCfi = null; await view.deleteAnnotation({ value: c }) }
+  }
+  goHit = (hits, k) => void (async () => {
+    await clearFind()
+    const x = hits[k]
+    await jumpTo(() => view.goTo(x.cfi))
+    findCfi = x.cfi
+    await view.addAnnotation({ value: x.cfi, kind: 'find' } as Annotation)
+    const step = (d: number) => goHit(hits, (k + d + hits.length) % hits.length)
+    findPill.replaceChildren(
+      h('button.iconbtn.flat', { 'aria-label': t.searchPrev, onclick: () => step(-1) }, icon('back')),
+      h('span.num', t.searchOf(k + 1, hits.length)),
+      h('button.iconbtn.flat.fwd', { 'aria-label': t.searchNext, onclick: () => step(1) }, icon('back')),
+      h('button.iconbtn.flat', { 'aria-label': t.close, onclick: () => void clearFind() }, icon('close')))
+    findPill.hidden = false
+  })()
 
   // ---- Remote position (another device) ---------------------------------------
   // Offered once the book is open: a place that arrives while it opens is the
