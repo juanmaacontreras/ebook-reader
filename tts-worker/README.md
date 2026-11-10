@@ -28,7 +28,9 @@ same account as the app. The worker stores only a refresh token
 `uv run compare_voices.py` renders the same Spanish and English passages
 with every voice into `samples/` (open `samples/index.html`). It also creates
 the Rioplatense reference clips (`voices/ar_tomas.wav`, `voices/ar_elena.wav`)
-with edge-tts. Any clean 10–20 s recording saved as `voices/<name>.wav` becomes
+with edge-tts. `uv run human_voices.py` builds the two default Spanish voices
+(`ar_mateo`, `ar_lucia`) from real Argentine speakers (OpenSLR 61, CC BY-SA 4.0):
+a clone sounds like its reference, and the edge-tts ones sound synthetic. Any clean 10–20 s recording saved as `voices/<name>.wav` becomes
 a new cloned voice in the app.
 
 ## Settings (optional, `.env`)

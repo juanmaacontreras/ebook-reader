@@ -4,6 +4,22 @@
 
 ## User decisions
 
+- 2026-11-10: **Spanish voices from human recordings, and a babble check that
+  listens for more than words.** The user: the audiobook voice is "muy robótica
+  y a veces balbucea". Robotic: Elena and Tomás were cloned from a synthetic
+  voice (edge-tts), and a clone sounds like its reference. He heard the same
+  study paragraph in 14 takes (XTTS and Chatterbox, today's voice and six human
+  speakers from OpenSLR 61) and picked Chatterbox "hombre 1" and "mujer 3":
+  `ar_mateo` (the Spanish default) and `ar_lucia`, built by
+  `tts-worker/human_voices.py`. Elena stays behind "Más voces". Babble: the old
+  check was one word score per chunk, and noise between two right words does not
+  lower it. `worker/qc.py` also rejects sound with no recognised word, extra
+  words at the ends and repeats. Run over the 110 minutes of the XTTS study book
+  it marked 6 places; he confirmed all 6 by ear. The word threshold stays 0.80:
+  spelled-out formulas score low on clean audio (median 0.90 on that book).
+  Measured speed on the GTX 1650, QC included: Chatterbox ~3 min per minute of
+  audio, XTTS ~1.5.
+
 - 2026-10-21: library layout C ("keep reading" card on top, grid below), chosen
   over a plain cover grid and a list. Default voices: Spanish
   `chatterbox-latam:ar_elena`, English `kokoro:af_heart`

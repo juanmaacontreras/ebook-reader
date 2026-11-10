@@ -13,6 +13,7 @@ import numpy as np
 from .audio import normalize, silence, trim
 from .engines import Engine
 from .engines import free_gpu
+from .qc import ACCEPT, only_outside
 from .text import Chunk, Piece, group_chunks, split_long, to_pieces
 
 log = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ log = logging.getLogger(__name__)
 PAUSE_SENTENCE = 0.32
 PAUSE_PARAGRAPH = 0.65
 PAUSE_HEADING = 0.9
-MAX_TRIES = 4
+MAX_TRIES = 5
 STABLE_AFTER = 3  # takes whose scores barely move mean an ASR bias, not babbling
 STABLE_SPREAD = 0.06
 
@@ -187,28 +188,51 @@ def _synth_chunk(engine: Engine, chunk: Chunk, lang: str, asr) -> tuple[np.ndarr
         wav = normalize(trim(engine.synth(chunk.text, lang), sr))
         return wav, _proportional_starts(texts, wav.size / sr), None
 
-    best = None
+    best = None  # (clean, score, wav, starts, issues)
     scores: list[float] = []
     for attempt in range(MAX_TRIES):
         temperature = max(0.35, 0.8 - 0.15 * attempt)
         wav = normalize(trim(engine.synth(chunk.text, lang, temperature=temperature), sr))
         dur = wav.size / sr
         expected = len(chunk.text) / 15.0  # ~15 characters per second of speech
+        babbling = False
         if dur < expected * 0.45 or dur > expected * 2.2:
-            score, rel = 0.0, _proportional_starts(texts, dur)
+            score, rel, issues = 0.0, _proportional_starts(texts, dur), [f"{dur:.1f} s for {len(chunk.text)} characters"]
         else:
             check = asr.check(wav, sr, lang, texts)
-            score, rel = check.score, check.starts
+            score, rel, v = check.score, check.starts, check.verdict
+            issues = list(v.issues) if v else ([] if score >= ACCEPT else [f"words {score:.2f}"])
+            if v and only_outside(v):
+                # The words are right, with sound before or after them: cut it off.
+                wav, rel = _cut(wav, sr, rel, *v.speech)
+                issues = []
+            babbling = any(not i.startswith("words") for i in issues)
         scores.append(score)
-        if best is None or score > best[0]:
-            best = (score, wav, rel)
-        if score >= 0.80:
+        rank = (not issues, score)
+        if best is None or rank > best[:2]:
+            best = (not issues, score, wav, rel, issues)
+        if not issues:
             break
-        if len(scores) >= STABLE_AFTER and max(scores[-STABLE_AFTER:]) - min(scores[-STABLE_AFTER:]) <= STABLE_SPREAD:
+        # The same score take after take is the recogniser mishearing the text (a name, a
+        # formula), not the voice: stop. Never while there is sound that isn't the text.
+        if not babbling and len(scores) >= STABLE_AFTER and max(scores[-STABLE_AFTER:]) - min(scores[-STABLE_AFTER:]) <= STABLE_SPREAD:
             break
-    score, wav, rel = best
-    warn = None if score >= 0.80 else f"chunk below QC threshold ({score:.2f}): {chunk.text[:80]}"
+    clean, score, wav, rel, issues = best
+    warn = None if clean else f"chunk not clean ({'; '.join(issues)}): {chunk.text[:80]}"
     return wav, rel, warn
+
+
+def _cut(wav: np.ndarray, sr: int, starts: list[float], start: float, end: float) -> tuple[np.ndarray, list[float]]:
+    """Keep the speech between start and end (seconds), with a little room and a short fade."""
+    a = max(0, int((start - 0.08) * sr))
+    b = min(wav.size, int((end + 0.18) * sr))
+    out = wav[a:b].copy()
+    fade = min(int(0.03 * sr), out.size // 2)
+    if fade:
+        ramp = np.linspace(0.0, 1.0, fade, dtype=out.dtype)
+        out[:fade] *= ramp
+        out[-fade:] *= ramp[::-1]
+    return out, [max(0.0, t - a / sr) for t in starts]
 
 
 def _sentence_texts(pieces: list[Piece]) -> list[str]:

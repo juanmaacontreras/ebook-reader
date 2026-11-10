@@ -17,7 +17,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-ACCEPT = 0.80
+from .qc import Verdict, Word, judge
+
+FRAME = 0.02  # seconds per frame of the sound/silence map
 
 
 def _norm_words(text: str) -> list[str]:
@@ -32,6 +34,21 @@ class Check:
     # Start time (seconds, relative to the chunk) of each sentence in the chunk,
     # in the same order as Chunk.sentences.
     starts: list[float]
+    # What is wrong with the chunk, if anything (worker/qc.py).
+    verdict: Verdict | None = None
+
+
+def voiced_frames(wav16k: np.ndarray) -> list[bool]:
+    """One flag per FRAME of audio: True where there is sound (within 35 dB of the loud parts)."""
+    n = int(16000 * FRAME)
+    frames = wav16k[: wav16k.size // n * n].astype(np.float64).reshape(-1, n)
+    if not frames.size:
+        return []
+    rms = np.sqrt((frames ** 2).mean(axis=1))
+    loud = float(np.percentile(rms, 95))
+    if loud <= 0:
+        return [False] * len(rms)
+    return [bool(x) for x in rms > loud * 10 ** (-35 / 20)]
 
 
 class Asr:
@@ -51,25 +68,18 @@ class Asr:
             wav.astype(np.float32), language=lang, word_timestamps=True, beam_size=1, vad_filter=False,
             condition_on_previous_text=False,
         )
-        heard: list[tuple[str, float]] = []
+        words: list[Word] = []
         for seg in segments:
             for w in seg.words or []:
                 for token in _norm_words(w.word):
-                    heard.append((token, w.start))
+                    words.append(Word(token, float(w.start), float(w.end)))
         expected: list[str] = []
         first_word: list[int] = []
         for s in sentence_texts:
             first_word.append(len(expected))
             expected.extend(_norm_words(s))
-        heard_words = [w for w, _ in heard]
-        sm = difflib.SequenceMatcher(a=expected, b=heard_words, autojunk=False)
-        score = sm.ratio() if expected else 1.0
-
-        # Map expected word index -> heard time where they matched.
-        times: dict[int, float] = {}
-        for a, b, size in sm.get_matching_blocks():
-            for k in range(size):
-                times[a + k] = heard[b + k][1]
+        verdict = judge(expected, words, voiced_frames(wav), FRAME)
+        score, times = verdict.score, verdict.times
         duration = wav.size / 16000
         starts: list[float] = []
         for i, fw in enumerate(first_word):
@@ -80,4 +90,4 @@ class Asr:
             if t is None:  # no match nearby: proportional to text position
                 t = duration * fw / max(1, len(expected))
             starts.append(max(t - 0.05, starts[-1]))
-        return Check(score=score, starts=starts)
+        return Check(score=score, starts=starts, verdict=verdict)
