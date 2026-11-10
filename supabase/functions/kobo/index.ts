@@ -193,12 +193,16 @@ const FALLBACK_RESOURCES: Record<string, string> = {
 
 async function initialization(req: Request, base: string): Promise<Response> {
   let resources: Record<string, unknown> | null = null
+  let why = ''  // why Kobo's own list wasn't used, for the log
   try {
     const fwd = new Headers()
     for (const [k, v] of req.headers) if (k === 'authorization' || k.startsWith('x-kobo-') || k === 'user-agent') fwd.set(k, v)
     const res = await fetch(`${KOBO_STORE}/v1/initialization`, { headers: fwd, signal: AbortSignal.timeout(6000) })
     if (res.ok) resources = (await res.json())?.Resources ?? null
-  } catch { /* Kobo unreachable: the fallback list */ }
+    if (!resources) why = `Kobo answered ${res.status}`
+  } catch (e) {
+    why = (e as Error)?.name === 'TimeoutError' ? 'Kobo timed out' : `Kobo unreachable (${(e as Error)?.name ?? 'error'})`
+  }
   const local = !resources
   resources ??= { ...FALLBACK_RESOURCES, device_auth: `${base}/v1/auth/device`, device_refresh: `${base}/v1/auth/refresh` }
   Object.assign(resources, {
@@ -217,7 +221,7 @@ async function initialization(req: Request, base: string): Promise<Response> {
     image_url_template: `${base}/{ImageId}/{Width}/{Height}/false/image.jpg`,
     image_url_quality_template: `${base}/{ImageId}/{Width}/{Height}/{Quality}/{IsGreyscale}/image.jpg`,
   })
-  return json({ Resources: resources }, 200, { 'x-kobo-apitoken': 'e30=', 'x-atril-resources': local ? 'fallback' : 'kobo' })
+  return json({ Resources: resources }, 200, { 'x-kobo-apitoken': 'e30=', 'x-atril-resources': local ? `fallback, ${why}` : 'kobo' })
 }
 
 // ---- Library sync -----------------------------------------------------------------
