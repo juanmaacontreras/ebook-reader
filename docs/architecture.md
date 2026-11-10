@@ -84,7 +84,10 @@ sentence, told apart by chapter and the sentence before; a rewritten one falls
 to the same share of its chapter); the place is written with `base` = the place
 it read, so a move made meanwhile wins. Highlights not found stay untouched.
 Narration chapters whose sentences changed are deleted with their audio (the
-deletion log reaches devices); the KEPUB is dropped so a device rebuilds it.
+deletion log reaches devices). The KEPUB is built by the same headless run and
+uploaded before the row changes (2026-11-10), so a published or replaced book
+reaches the Kobo without any app open and never drops out of its sync; only if
+that build is refused is the old one removed for a device to rebuild.
 Devices see the new `sha256` on pull and drop their copies of the EPUB, cover
 and manifest (`merge` in sync.ts). Known gap: a device pushing an edit of the
 book row made before it pulled the replacement (newer `updated_at`) writes the

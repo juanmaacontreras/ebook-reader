@@ -80,6 +80,15 @@
   time, so a declined place isn't offered every minute. Status keeps its real
   time (the `told` echo rule reads it). Not yet confirmed on the device: whether
   a Kobo left open and idle after declining asks again each minute.
+- **A replaced book (open, 2026-11-10)**: `publish_book.py` swaps the KEPUB under the
+  same book id, and the sync sends the book as a *changed* entitlement with the same
+  `RevisionId`. Not confirmed on the device: whether it downloads the file again. If
+  it keeps the old file, its `kobo.N` spans count the old sentences while the function
+  maps them with the new `kepub.json`, so places land off in chapters that changed.
+  To check: replace a book the Kobo has, sync, look for a `download/<id>` in
+  `kobo_log` and for the corrected text on the device. If it doesn't: send the book
+  as removed and then as new (the removal is known to work), keyed on the hash the
+  device downloaded (a new `kobo_books` column).
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
   bodies as sent, the place sent back on `GET state`, `ms` to answer; two
   weeks). Each request reads what it needs in one round of parallel queries,
