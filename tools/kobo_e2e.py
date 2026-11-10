@@ -261,30 +261,44 @@ def main() -> None:
         sql(f"update books set sha256 = 'replaced-e2e' where id = {lit(bid)}")
         status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
         gone = [i["ChangedEntitlement"]["BookEntitlement"] for i in items if "ChangedEntitlement" in i]
-        check(status == 200 and len(items) == 1 and len(gone) == 1 and gone[0]["Id"] == bid and gone[0]["IsRemoved"] is True,
-              "the next sync takes the old version off the device")
-        check(h.get("x-kobo-sync") != "continue", "…without chaining another sync (in the same round the device keeps its old file)")
+        new = [i["NewEntitlement"] for i in items if "NewEntitlement" in i]
+        check(status == 200 and len(gone) == 1 and gone[0]["Id"] == bid and gone[0]["IsRemoved"] is True, "the next sync takes the old version off the device")
+        kid = new[0]["BookEntitlement"]["Id"] if new else ""
+        check(len(new) == 1 and kid and kid != bid, "…and hands the book as a new one under another id (the device keeps the file of an id it has)")
+        check(bool(new) and new[0]["BookMetadata"]["EntitlementId"] == kid and new[0]["ReadingState"]["EntitlementId"] == kid
+              and new[0]["BookMetadata"]["DownloadUrls"][0]["Url"].endswith(f"/download/{kid}") and new[0]["BookMetadata"]["Title"],
+              "…its metadata, reading state and download all under that id")
+        check(new[0]["ReadingState"]["CurrentBookmark"].get("Location", {}).get("Type") == "KoboSpan", "…opening at the place everyone shares")
         cursor = h.get("x-kobo-synctoken") or cursor
+        before = sql(pos_q)[0]
+        report("kobo.2.1", 11, "Reading", later(), fl["p"])  # the old copy, were it still there
+        check(sql(pos_q)[0] == before, "a report from the old version is not taken")
         status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
-        check(status == 200 and items == [], "a sync made right away doesn't hand it back yet")
+        new = [i["NewEntitlement"] for i in items if "NewEntitlement" in i]
+        check(status == 200 and len(items) == 1 and len(new) == 1 and new[0]["BookEntitlement"]["Id"] == kid, "offered again, same id, until the device downloads it")
         cursor = h.get("x-kobo-synctoken") or cursor
-        http("DELETE", f"{base}/v1/library/{bid}", headers=kobo)
-        check(sql(f"select removed from kobo_books where book_id = {lit(bid)}")[0]["removed"] is False,
-              "a removal the device may answer with meanwhile is not taken as the user's")
-        report("kobo.6.1", 10, "Reading", later(), fl["p"])  # a report still on its way
-        sql(f"update kobo_books set resend_at = now() - interval '1 minute' where book_id = {lit(bid)}")  # the device's next sync
-        for attempt in ("in its next sync", "and again until it downloads it"):
-            status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
-            new = [i["NewEntitlement"] for i in items if "NewEntitlement" in i]
-            check(status == 200 and len(new) == 1 and new[0]["BookMetadata"]["EntitlementId"] == bid, f"the book goes as new {attempt}")
-            cursor = h.get("x-kobo-synctoken") or cursor
-        status, _, again_ = http("GET", f"{base}/download/{bid}", headers=kobo, raw=True)
-        has = sql(f"select has_sha, confirmed_at from kobo_books where book_id = {lit(bid)}")[0]
-        check(status == 200 and has["has_sha"] == "replaced-e2e" and has["confirmed_at"], "downloaded again: the device has the new version")
+        status, _, meta = http("GET", f"{base}/v1/library/{kid}/metadata", headers=kobo)
+        check(status == 200 and meta[0]["EntitlementId"] == kid and meta[0]["DownloadUrls"][0]["Url"].endswith(f"/download/{kid}"), "metadata by the new id")
+        status, _, again_ = http("GET", f"{base}/download/{kid}", headers=kobo, raw=True)
+        has = sql(f"select has_sha, confirmed_at, kid from kobo_books where book_id = {lit(bid)}")[0]
+        check(status == 200 and len(again_) > 0 and has["has_sha"] == "replaced-e2e" and has["confirmed_at"] and has["kid"] == kid, "downloaded: the device has the new version")
+        status, _, got = http("GET", f"{base}/v1/library/{kid}/state", headers=kobo)
+        check(status == 200 and got[0]["EntitlementId"] == kid, "GET state by the new id")
+        at = later()
+        status, _, r = http("PUT", f"{base}/v1/library/{kid}/state", {"ReadingStates": [{
+            "EntitlementId": kid, "LastModified": ts(at),
+            "CurrentBookmark": {"LastModified": ts(at), "ProgressPercent": 50, "ContentSourceProgressPercent": 50,
+                                "Location": {"Value": "kobo.2.1", "Type": "KoboSpan", "Source": fl["p"]}},
+            "Statistics": {"LastModified": ts(at), "SpentReadingMinutes": 1},
+            "StatusInfo": {"LastModified": ts(at), "Status": "Reading", "TimesStartedReading": 1},
+        }]}, kobo)
+        pos = sql(pos_q)[0]
+        check(status == 200 and r["UpdateResults"][0]["EntitlementId"] == kid and pos["device"].startswith("kobo:") and pos["sentence"] == 1,
+              "reading on the new version moves the shared place")
         status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
-        check(status == 200 and items == [], "…and nothing more to sync")
+        check(status == 200 and not [i for i in items if "NewEntitlement" in i or "ChangedEntitlement" in i], "…and the book is not sent again")
 
-        status, _, _ = http("DELETE", f"{base}/v1/library/{bid}", headers=kobo)
+        status, _, _ = http("DELETE", f"{base}/v1/library/{kid}", headers=kobo)
         removed = sql(f"select removed from kobo_books where book_id = {lit(bid)}")
         check(status == 204 and removed and removed[0]["removed"] is True, "removed on the device: not offered again")
 

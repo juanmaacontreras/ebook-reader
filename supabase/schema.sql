@@ -347,6 +347,11 @@ alter table public.kobo_books add column if not exists told_at timestamptz;
 -- known (downloaded before 2026-11-10), left alone. resend_at: when that was started.
 alter table public.kobo_books add column if not exists has_sha text;
 alter table public.kobo_books add column if not exists resend_at timestamptz;
+-- The id this device knows the book by: null = the book's own. The device keeps the file
+-- of an id it already has whatever it is told (a changed entry; removed and new again,
+-- in one sync or two: all tried on the real device, 2026-11-10), so a replaced book is
+-- handed to it under a new id, the old one going as removed.
+alter table public.kobo_books add column if not exists kid uuid;
 
 -- Every request a Kobo makes (never the token), kept two weeks: when and how
 -- often it syncs is only learnt from this. body: what it reported of a book
