@@ -228,13 +228,13 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   const out: KoboState[] = []
   let more = false
 
-  // The three feeds at once: books, removals, places; and the books this device was
-  // handed but never showed it has (a lost answer, or one taken off it to send again).
+  // The three feeds at once: books, removals, places; and the books taken off this
+  // device to send again (a replaced one) that it hasn't downloaded yet.
   const [feed, deleted, moved, waiting] = await Promise.all([
     rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&user_id=eq.${dev.user_id}&kepub_path=not.is.null&synced_at=gt.${q(cursor.books)}&order=synced_at&limit=${LIMIT}`),
     rest<{ book_id: string; synced_at: string }[]>(`deleted_books?select=book_id,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.deleted)}&order=synced_at&limit=${LIMIT}`),
     rest<(AtrilPosition & { book_id: string; synced_at: string })[]>(`positions?select=book_id,section,sentence,fraction,device,updated_at,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.positions)}&order=synced_at&limit=${LIMIT}`),
-    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&removed=is.false&limit=${LIMIT}`),
+    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&resend_at=not.is.null&removed=is.false&limit=${LIMIT}`),
   ])
 
   // 1. Books added or changed (title, status, a KEPUB just built), then those waiting.
@@ -528,8 +528,8 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
       if (!(await bookOf(dev, id))) continue
       // Not the user's doing: the device answering a book this sync just took off it to
       // send again (were it to say so). The book must still be offered.
-      const at = known.get(id)?.resend_at
-      if (at && Date.now() - Date.parse(at) < 10 * 60_000) { kept++; continue }
+      const kb = known.get(id)
+      if (kb?.resend_at && !kb.confirmed_at && Date.now() - Date.parse(kb.resend_at) < 10 * 60_000) { kept++; continue }
       await rest('kobo_books?on_conflict=device_id,book_id', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
         body: JSON.stringify({ device_id: dev.id, book_id: id, removed: true }),
