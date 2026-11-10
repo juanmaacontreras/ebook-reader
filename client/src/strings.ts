@@ -117,6 +117,12 @@ export const t = {
   thisBook: 'Este libro',
   allBooks: 'Todos los libros',
   noResults: 'Nada coincide con la búsqueda',
+  searchBook: 'Buscar en el libro',
+  searchBookHint: 'Escribí una palabra o una frase. No importan las mayúsculas ni los acentos.',
+  searchCount: (n: number) => n === 1 ? '1 resultado' : `${n} resultados`,
+  searchOf: (k: number, n: number) => `${k} de ${n}`,
+  searchPrev: 'Anterior',
+  searchNext: 'Siguiente',
 
   // Audio
   listen: 'Escuchar',

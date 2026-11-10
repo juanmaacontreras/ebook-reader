@@ -27,6 +27,7 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     sentences.ts          sentence segmentation — shared by import (manifest) and reader (highlight/tap)
     manifest.ts           builds the per-book sentence manifest (CFI + text per sentence)
     importer.ts           EPUB import: hash, metadata, cover, manifest, local save → sync uploads
+    search.ts             search inside a book over its manifest (no case or accents), with the CFI to jump to
     remap.ts              a replaced book: place and highlights moved to the same text in the new version
     kepub.ts              the book as a Kobo reads it: manifest sentences wrapped in koboSpans (see "Kobo")
     bookStyles.ts         CSS injected into the book (light/sepia/dark reading themes, fonts, spacing)
@@ -37,7 +38,7 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     nativeEngine.ts       bridge to the Android plugin (NarrationPlayer)
     cache.ts              this device's audio copy (files on Android, IndexedDB elsewhere)
     voices.ts             fallback voice list
-  src/screens/            auth, library, reader, player, toc, highlights, narration, readingSettings, settings,
+  src/screens/            auth, library, reader, player, toc, search, highlights, narration, readingSettings, settings,
                           audios (#/audios), stats (#/stats, "Resumen")
   src/platform/           platform detection, UI theme + system bars, self-updater, keepAwake
   android/                Capacitor Android project (committed). Own native code in
