@@ -54,7 +54,9 @@ tts-worker/               narration worker for the PC (Python 3.12, uv)
   worker/narrate.py       chapter → audio + sentence timings (chunk cache, QC retries)
   worker/text.py          cleanup, long-sentence splitting, chunk grouping (stdlib only, tested in CI)
   worker/asr.py           faster-whisper round trip: QC + sentence starts inside a chunk
+  worker/qc.py            what counts as a clean chunk: words, sound that is no word, extras, repeats
   worker/align.py         manifest sentences ↔ Whisper words of an external narration (stdlib, tested in CI)
+  human_voices.py         build the default Spanish reference clips from OpenSLR 61 (human speakers)
   import_audio.py         attach audio made elsewhere (resumidor's XTTS mp3s) to a book: transcribe, align, upload
   publish_book.py         add an EPUB without the app, or replace a book's EPUB keeping place and highlights
   worker/audio.py         trimming, pauses, Ogg Opus 32 kbps mono (PyAV)

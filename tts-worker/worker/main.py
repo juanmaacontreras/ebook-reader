@@ -187,7 +187,7 @@ KOKORO_NAMES = {
     "af_nicole": "Nicole", "am_michael": "Michael", "am_fenrir": "Fenrir", "bf_emma": "Emma",
     "bm_george": "George", "bm_fable": "Fable",
 }
-CLONE_LABELS = {"ar_tomas": "Tomás", "ar_elena": "Elena", "en_andrew": "Andrew", "en_sonia": "Sonia"}
+CLONE_LABELS = {"ar_mateo": "Mateo", "ar_lucia": "Lucía", "ar_tomas": "Tomás", "ar_elena": "Elena", "en_andrew": "Andrew", "en_sonia": "Sonia"}
 
 
 def available_voices() -> list[dict]:
