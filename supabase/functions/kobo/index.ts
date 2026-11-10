@@ -24,7 +24,7 @@
 
 import {
   type AtrilBook, type AtrilPosition, deviceTime, entitlement, type KepubMap, type KoboState, type Manifest,
-  metadata, offerNewer, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, START, startOf, statusChange,
+  metadata, offerNewer, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, seriesNumbers, START, startOf, statusChange,
   type SyncCursor, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
@@ -110,7 +110,7 @@ async function deviceFor(token: string): Promise<Device | null> {
   })
 }
 
-const BOOK_COLUMNS = 'id,title,author,language,status,added_at,finished_at,updated_at,synced_at,kepub_path'
+const BOOK_COLUMNS = 'id,title,author,language,status,added_at,finished_at,updated_at,synced_at,kepub_path,subject'
 type BookRow = AtrilBook & { synced_at: string; kepub_path: string | null }
 
 const UUID = /^[0-9a-f-]{36}$/i
@@ -119,6 +119,14 @@ async function bookOf(dev: Device, id: string): Promise<BookRow | null> {
   if (!UUID.test(id)) return null
   const rows = await rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&id=eq.${id}&user_id=eq.${dev.user_id}&kepub_path=not.is.null`)
   return rows[0] ?? null
+}
+
+// Each book's number in its subject's series (logic.ts, seriesNumbers). Never fails a sync:
+// without it the books go as number 1.
+function seriesOf(dev: Device): Promise<Map<string, number>> {
+  return cached(`series:${dev.user_id}`, 60_000, async () =>
+    seriesNumbers(await rest<{ id: string; subject: string | null; added_at: string }[]>(`books?select=id,subject,added_at&user_id=eq.${dev.user_id}&subject=not.is.null`)),
+  ).catch(e => { console.error('kobo: series', e); return new Map<string, number>() })
 }
 
 type KoboBook = {
@@ -229,7 +237,8 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   // 1. Books added or changed (title, status, a KEPUB just built).
   if (books.length === LIMIT) more = true
   const ids = books.map(b => b.id)
-  const [kb, pos, sizes, maps] = await Promise.all([
+  const [series, kb, pos, sizes, maps] = await Promise.all([
+    ids.length ? seriesOf(dev) : Promise.resolve(new Map<string, number>()),
     koboBooks(dev, ids),
     positionsOf(dev, ids),
     ids.length ? rest<{ book_id: string; bytes: number }[]>('rpc/kobo_kepub_sizes', { method: 'POST', body: JSON.stringify({ uid: dev.user_id }) }) : Promise.resolve([]),
@@ -244,7 +253,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
     if (known?.removed) continue
     const map = maps[k]
     const state = readingState(b, pos.get(b.id) ?? null, map, { state: known?.state ?? null, device: dev.tag })
-    out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null), ReadingState: state } })
+    out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null, series.get(b.id)), ReadingState: state } })
     inEntitlements.add(b.id)
     if (!known) sent.push(b.id)
     handed.push({ known, state })
@@ -453,12 +462,13 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     return { res, note: `${(await res.clone().json()).length} items${res.headers.get('x-kobo-sync') ? ', continue' : ''}` }
   }
   if ((x = /^v1\/library\/([^/]+)\/metadata$/.exec(path))) {
-    const [book, sizes] = await Promise.all([
+    const [book, series, sizes] = await Promise.all([
       bookOf(dev, x[1]),
+      seriesOf(dev),
       rest<{ book_id: string; bytes: number }[]>('rpc/kobo_kepub_sizes', { method: 'POST', body: JSON.stringify({ uid: dev.user_id }) }),
     ])
     if (!book) return toKobo(path, url)
-    return { res: json([metadata(book, base, sizes.find(s => s.book_id === book.id)?.bytes ?? null)]) }
+    return { res: json([metadata(book, base, sizes.find(s => s.book_id === book.id)?.bytes ?? null, series.get(book.id))]) }
   }
   if ((x = /^v1\/library\/([^/]+)\/state$/.exec(path))) {
     if (m === 'PUT') return await putState(req, dev, x[1])

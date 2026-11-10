@@ -1,8 +1,8 @@
 // deno test supabase/functions/kobo
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
-  deviceTime, fileFor, type KepubMap, type Manifest, offerNewer, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
-  startOf, statusChange, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
+  deviceTime, fileFor, type KepubMap, type Manifest, metadata, offerNewer, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
+  seriesId, seriesNumbers, startOf, statusChange, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
 const map: KepubMap = { v: 1, files: [{ p: 'OEBPS/Text/cap1.xhtml', i: 2, n: 10 }, { p: 'OEBPS/Text/cap2.xhtml', i: 3, n: 4 }] }
@@ -175,4 +175,24 @@ Deno.test('sync token round trip; Kobo\'s own token starts over', () => {
   assertEquals(readCursor(btoa(JSON.stringify({ atril: 1, b: '2026-11-02T00:00:00Z' }))), null)  // version 1 starts over
   assertEquals(readCursor(btoa(JSON.stringify({ atril: 2, b: '2099' + "'" }))), null)  // not a date: starts over
   assertEquals(readCursor(null), null)
+})
+
+Deno.test('a book with a subject goes as part of that series, numbered by when it was added', () => {
+  const book = { id: 'b2', title: 'Segundo parcial', author: null, language: 'es', status: 'reading' as const, added_at: '2026-11-09T00:00:00Z', finished_at: null, updated_at: '2026-11-09T00:00:00Z' }
+  const numbers = seriesNumbers([
+    { id: 'b2', subject: 'Sistemas de Comunicaciones', added_at: '2026-11-09T00:00:00Z' },
+    { id: 'b1', subject: 'sistemas de comunicaciones ', added_at: '2026-11-03T00:00:00Z' },
+    { id: 'x', subject: 'TC2', added_at: '2026-11-05T00:00:00Z' },
+    { id: 'n', subject: null, added_at: '2026-11-01T00:00:00Z' },
+  ])
+  assertEquals([numbers.get('b1'), numbers.get('b2'), numbers.get('x'), numbers.get('n')], [1, 2, 1, undefined])
+  const m = metadata({ ...book, subject: 'Sistemas de Comunicaciones' }, 'https://x', 10, numbers.get('b2'))
+  assertEquals(m.Series, { Id: seriesId('Sistemas de Comunicaciones'), Name: 'Sistemas de Comunicaciones', Number: '2', NumberFloat: 2 })
+  // The same series whatever the case or spaces; a valid UUID shape; another subject, another id.
+  assertEquals(seriesId(' sistemas de comunicaciones'), seriesId('Sistemas de Comunicaciones'))
+  assertEquals(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/.test(seriesId('TC2')), true)
+  assertEquals(seriesId('TC2') === seriesId('TC1'), false)
+  // No subject: no series at all, as before.
+  assertEquals('Series' in metadata(book, 'https://x', 10), false)
+  assertEquals('Series' in metadata({ ...book, subject: '  ' }, 'https://x', 10), false)
 })

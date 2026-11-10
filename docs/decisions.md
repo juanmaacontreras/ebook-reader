@@ -322,3 +322,7 @@
   "what was read or heard per unit" cannot come from existing data (IDEAS.md called it
   quick): it needs a new record written by `SessionTracker`, a schema change and a
   screen. Past sessions cannot be split by unit.
+- 2026-11-10: **the Kobo comes first for new work** (user: "prioricemos todo lo que tenga
+  que ver con el ebook, me interesa personalizar eso"), still without restyling the book's
+  inside (same day, above). First step: the subject as the book's series (see "Subject as
+  series" in docs/kobo.md); built, to deploy with a short-lived token.
