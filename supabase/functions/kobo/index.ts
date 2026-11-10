@@ -42,6 +42,10 @@ function secretKey(): string {
 const KEY = secretKey()
 const KOBO_STORE = 'https://storeapi.kobo.com'
 const LIMIT = 100
+// A replaced book goes as removed in one sync and as new only in a later one: told both
+// in the same round (a sync and the one it chains with x-kobo-sync: continue), the device
+// keeps its old file and only refreshes the entry (seen 2026-11-10 13:51 UTC).
+const RESEND_GAP_MS = 20_000
 
 interface Device { id: string; user_id: string; tag: string }
 
@@ -238,7 +242,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
     rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&user_id=eq.${dev.user_id}&kepub_path=not.is.null&synced_at=gt.${q(cursor.books)}&order=synced_at&limit=${LIMIT}`),
     rest<{ book_id: string; synced_at: string }[]>(`deleted_books?select=book_id,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.deleted)}&order=synced_at&limit=${LIMIT}`),
     rest<(AtrilPosition & { book_id: string; synced_at: string })[]>(`positions?select=book_id,section,sentence,fraction,device,updated_at,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.positions)}&order=synced_at&limit=${LIMIT}`),
-    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&resend_at=not.is.null&removed=is.false&limit=${LIMIT}`),
+    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&resend_at=lt.${q(new Date(Date.now() - RESEND_GAP_MS).toISOString())}&removed=is.false&limit=${LIMIT}`),
   ])
 
   // 1. Books added or changed (title, status, a KEPUB just built), then those waiting.
@@ -264,13 +268,14 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
     const known = kb.get(b.id)
     if (known?.removed) continue
     // Replaced in place since the device downloaded it: off the device now, and as a
-    // new book in the sync it makes right after this one (x-kobo-sync: continue).
+    // new book in its next sync (RESEND_GAP_MS).
     if (replacedOnDevice(known, b.sha256)) {
       out.push(removedEntitlement(b.id, new Date().toISOString()))
       resend.push(b.id)
-      more = true
       continue
     }
+    // Taken off it moments ago: not in this round.
+    if (known?.resend_at && !known.confirmed_at && Date.now() - Date.parse(known.resend_at) < RESEND_GAP_MS) continue
     const map = maps[k]
     const state = readingState(b, pos.get(b.id) ?? null, map, { state: known?.state ?? null, device: dev.tag })
     out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null, series.get(b.id)), ReadingState: state } })
@@ -438,7 +443,7 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   // A report made after it was told (10 s for the clocks) without it: dropped.
   // A report doesn't show the device has the book while it is being sent again (taken
   // off it minutes ago, not downloaded yet): one still on its way must not stop that.
-  const resending = !!known?.resend_at && !known.confirmed_at && now.getTime() - Date.parse(known.resend_at) < 10 * 60_000
+  const resending = !!known?.resend_at && !known.confirmed_at
   const fresh = applies || !known?.told_at || decided.getTime() > Date.parse(known.told_at) + 10_000
   const left = toldAfter(told, previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, fresh)
   writes.push(rest('kobo_books?on_conflict=device_id,book_id', {

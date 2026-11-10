@@ -93,12 +93,16 @@
   changed entry), no `download/` after. Its `kobo.N` spans then count the old sentences
   while the function maps them with the new `kepub.json`. So `kobo_books.has_sha` keeps
   the EPUB hash whose KEPUB the device downloaded; when it differs from `books.sha256`
-  the sync answers with the book removed and `x-kobo-sync: continue`, clears
-  `confirmed_at`, and the sync the device makes right after hands it as new, and so does
-  every sync until it downloads it. Until then, for ten minutes (`resend_at`), a DELETE
-  or a report from the device does not count as the user removing it or as having it. `has_sha` null (downloaded before this): left alone.
-  Covered by `tools/kobo_e2e.py` (all checks pass against the deployed function, 2026-11-10). **Not seen on the device yet**: that it takes the
-  removal and the new entry in two syncs in a row. Highlights made on the Kobo in that
+  the sync answers with the book removed and clears `confirmed_at`; a *later* sync
+  (`RESEND_GAP_MS` after) hands it as new, and so does every sync until it downloads it.
+  Removed and new in one round (a sync and the one chained by `x-kobo-sync: continue`)
+  does not work: on the real device (13:51 UTC) it kept its old file and only took the
+  new entry's metadata (the series showed up), with no `download/`. Until the download,
+  a report from the device does not count as having the book, nor a DELETE (ten minutes)
+  as the user removing it. `has_sha` null (downloaded before this): left alone.
+  Covered by `tools/kobo_e2e.py` (all checks pass against the deployed function, 2026-11-10). **Not seen on the device yet**: that the book
+  leaves it on the first sync and is downloaded on the second. Also learnt: the device
+  takes `Series` only from a *new* entitlement, never from a changed one. Highlights made on the Kobo in that
   book go with the old file.
 - **Initialization on the fallback list since 2026-11-03 (open)**: the first fallback
   was a timeout (6 s, 19:44 UTC); from 20:33 on every one is a fast failure (~0.5 s), so

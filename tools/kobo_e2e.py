@@ -263,13 +263,17 @@ def main() -> None:
         gone = [i["ChangedEntitlement"]["BookEntitlement"] for i in items if "ChangedEntitlement" in i]
         check(status == 200 and len(items) == 1 and len(gone) == 1 and gone[0]["Id"] == bid and gone[0]["IsRemoved"] is True,
               "the next sync takes the old version off the device")
-        check(h.get("x-kobo-sync") == "continue", "…and asks it to sync again right away")
+        check(h.get("x-kobo-sync") != "continue", "…without chaining another sync (in the same round the device keeps its old file)")
+        cursor = h.get("x-kobo-synctoken") or cursor
+        status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
+        check(status == 200 and items == [], "a sync made right away doesn't hand it back yet")
         cursor = h.get("x-kobo-synctoken") or cursor
         http("DELETE", f"{base}/v1/library/{bid}", headers=kobo)
         check(sql(f"select removed from kobo_books where book_id = {lit(bid)}")[0]["removed"] is False,
               "a removal the device may answer with meanwhile is not taken as the user's")
         report("kobo.6.1", 10, "Reading", later(), fl["p"])  # a report still on its way
-        for attempt in ("right after", "and again until it downloads it"):
+        sql(f"update kobo_books set resend_at = now() - interval '1 minute' where book_id = {lit(bid)}")  # the device's next sync
+        for attempt in ("in its next sync", "and again until it downloads it"):
             status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
             new = [i["NewEntitlement"] for i in items if "NewEntitlement" in i]
             check(status == 200 and len(new) == 1 and new[0]["BookMetadata"]["EntitlementId"] == bid, f"the book goes as new {attempt}")
