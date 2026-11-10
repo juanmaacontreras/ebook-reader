@@ -87,23 +87,21 @@
   device learns it when the book is sent again in a sync (`books.synced_at` moves), so
   books it already has need a touch. To see on the device: the series under the title
   and in its Series tab.
-- **A replaced book (2026-11-10)**: the device never downloads a changed book again.
-  Seen in `kobo_log`: "Sistemas de Comunicaciones — Resumen" downloaded 03:30:08 UTC,
-  replaced by `publish_book.py` at 03:34, sync at 03:36:24 answered "1 items" (the
-  changed entry), no `download/` after. Its `kobo.N` spans then count the old sentences
-  while the function maps them with the new `kepub.json`. So `kobo_books.has_sha` keeps
-  the EPUB hash whose KEPUB the device downloaded; when it differs from `books.sha256`
-  the sync answers with the book removed and clears `confirmed_at`; a *later* sync
-  (`RESEND_GAP_MS` after) hands it as new, and so does every sync until it downloads it.
-  Removed and new in one round (a sync and the one chained by `x-kobo-sync: continue`)
-  does not work: on the real device (13:51 UTC) it kept its old file and only took the
-  new entry's metadata (the series showed up), with no `download/`. Until the download,
-  a report from the device does not count as having the book, nor a DELETE (ten minutes)
-  as the user removing it. `has_sha` null (downloaded before this): left alone.
-  Covered by `tools/kobo_e2e.py` (all checks pass against the deployed function, 2026-11-10). **Not seen on the device yet**: that the book
-  leaves it on the first sync and is downloaded on the second. Also learnt: the device
-  takes `Series` only from a *new* entitlement, never from a changed one. Highlights made on the Kobo in that
-  book go with the old file.
+- **A replaced book (2026-11-10)**: the device keeps the file of an id it already has,
+  whatever it is told. Tried on the real device the same day, all without a `download/`
+  in `kobo_log`: a *changed* entry (03:36 UTC); removed and new in one round (13:51: it
+  only took the new entry's metadata, the series showed up); removed in one sync and new
+  in the next (14:06 and 14:07: the book left the screen and came back, same file). So a
+  replaced book is handed under a **new id**: `kobo_books.has_sha` keeps the EPUB hash
+  whose KEPUB the device downloaded; when it differs from `books.sha256` the sync sends
+  the old id as removed and the book as new under `kobo_books.kid` (a fresh UUID; null =
+  the book's own id), offered on every sync until it is downloaded. Every id the device
+  uses goes through `bookId` (index.ts): a `kid` stands for its book, the id of a
+  replaced version for nothing (its reports are not taken). `has_sha` null (downloaded
+  before this): left alone. Covered by `tools/kobo_e2e.py` (ALL PASSED against the
+  deployed function). Highlights made on the Kobo in that book go with the old file.
+  Also learnt: the device takes `Series` only from a *new* entitlement. Known gap: a
+  book replaced once and later removed from the library stays on the device.
 - **Initialization on the fallback list since 2026-11-03 (open)**: the first fallback
   was a timeout (6 s, 19:44 UTC); from 20:33 on every one is a fast failure (~0.5 s), so
   Kobo answers but not with 200. The log now says why ("resources: fallback, Kobo
