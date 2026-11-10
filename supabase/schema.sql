@@ -339,6 +339,14 @@ alter table public.kobo_books add column if not exists confirmed_at timestamptz;
 -- told_at: when the last one was added (a report made before that can't show it).
 alter table public.kobo_books add column if not exists told text[] not null default '{}';
 alter table public.kobo_books add column if not exists told_at timestamptz;
+-- The EPUB (books.sha256) whose KEPUB the device downloaded. A book replaced in place
+-- (tts-worker/publish_book.py) keeps its id and the device never downloads a changed
+-- book again (kobo_log 2026-11-10: it took the "changed" entry and kept its old file),
+-- so when this differs from the book's hash the sync takes the book off the device and
+-- hands it over as new (functions/kobo, "A replaced book" in docs/kobo.md). null: not
+-- known (downloaded before 2026-11-10), left alone. resend_at: when that was started.
+alter table public.kobo_books add column if not exists has_sha text;
+alter table public.kobo_books add column if not exists resend_at timestamptz;
 
 -- Every request a Kobo makes (never the token), kept two weeks: when and how
 -- often it syncs is only learnt from this. body: what it reported of a book

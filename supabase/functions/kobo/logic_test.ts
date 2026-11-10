@@ -1,7 +1,7 @@
 // deno test supabase/functions/kobo
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
-  deviceTime, fileFor, type KepubMap, type Manifest, metadata, offerNewer, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
+  deviceTime, fileFor, type KepubMap, type Manifest, metadata, offerNewer, replacedOnDevice, placeForKobo, placeFromKobo, readCursor, readingState, samePlace,
   seriesId, seriesNumbers, startOf, statusChange, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
@@ -195,4 +195,14 @@ Deno.test('a book with a subject goes as part of that series, numbered by when i
   // No subject: no series at all, as before.
   assertEquals('Series' in metadata(book, 'https://x', 10), false)
   assertEquals('Series' in metadata({ ...book, subject: '  ' }, 'https://x', 10), false)
+})
+
+Deno.test('a book replaced after the device downloaded it is told apart; an unknown version is left alone', () => {
+  const at = '2026-11-10T03:30:08Z'
+  assertEquals(replacedOnDevice({ confirmed_at: at, has_sha: 'old' }, 'new'), true)
+  assertEquals(replacedOnDevice({ confirmed_at: at, has_sha: 'same' }, 'same'), false)
+  assertEquals(replacedOnDevice({ confirmed_at: at, has_sha: null }, 'new'), false)   // downloaded before this was recorded
+  assertEquals(replacedOnDevice({ confirmed_at: null, has_sha: 'old' }, 'new'), false) // not on the device: it goes as new anyway
+  assertEquals(replacedOnDevice(undefined, 'new'), false)
+  assertEquals(replacedOnDevice({ confirmed_at: at, has_sha: 'old' }, null), false)
 })

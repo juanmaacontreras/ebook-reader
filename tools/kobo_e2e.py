@@ -252,6 +252,34 @@ def main() -> None:
              "updated_at": datetime.now(timezone.utc).isoformat()}, user)  # "terminado" on the phone
         report("kobo.6.1", 10, "Reading", later(), fl["p"])
         check(st() == "finished", "\"terminado\" decided on the phone isn't undone by the Kobo reading on")
+        print("kobo: the book is replaced in place (publish_book.py)")
+        sync = f"{base}/v1/library/sync"
+        has = sql(f"select has_sha, (select sha256 from books where id = {lit(bid)}) sha from kobo_books where book_id = {lit(bid)}")[0]
+        check(bool(has["sha"]) and has["has_sha"] == has["sha"], "the download recorded which version the device has")
+        _, h, _ = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
+        cursor = h.get("x-kobo-synctoken") or cursor
+        sql(f"update books set sha256 = 'replaced-e2e' where id = {lit(bid)}")
+        status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
+        gone = [i["ChangedEntitlement"]["BookEntitlement"] for i in items if "ChangedEntitlement" in i]
+        check(status == 200 and len(items) == 1 and len(gone) == 1 and gone[0]["Id"] == bid and gone[0]["IsRemoved"] is True,
+              "the next sync takes the old version off the device")
+        check(h.get("x-kobo-sync") == "continue", "…and asks it to sync again right away")
+        cursor = h.get("x-kobo-synctoken") or cursor
+        http("DELETE", f"{base}/v1/library/{bid}", headers=kobo)
+        check(sql(f"select removed from kobo_books where book_id = {lit(bid)}")[0]["removed"] is False,
+              "a removal the device may answer with meanwhile is not taken as the user's")
+        report("kobo.6.1", 10, "Reading", later(), fl["p"])  # a report still on its way
+        for attempt in ("right after", "and again until it downloads it"):
+            status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
+            new = [i["NewEntitlement"] for i in items if "NewEntitlement" in i]
+            check(status == 200 and len(new) == 1 and new[0]["BookMetadata"]["EntitlementId"] == bid, f"the book goes as new {attempt}")
+            cursor = h.get("x-kobo-synctoken") or cursor
+        status, _, again_ = http("GET", f"{base}/download/{bid}", headers=kobo, raw=True)
+        has = sql(f"select has_sha, confirmed_at from kobo_books where book_id = {lit(bid)}")[0]
+        check(status == 200 and has["has_sha"] == "replaced-e2e" and has["confirmed_at"], "downloaded again: the device has the new version")
+        status, h, items = http("GET", sync, headers={**kobo, "x-kobo-synctoken": cursor})
+        check(status == 200 and items == [], "…and nothing more to sync")
+
         status, _, _ = http("DELETE", f"{base}/v1/library/{bid}", headers=kobo)
         removed = sql(f"select removed from kobo_books where book_id = {lit(bid)}")
         check(status == 204 and removed and removed[0]["removed"] is True, "removed on the device: not offered again")
