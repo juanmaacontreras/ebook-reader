@@ -231,7 +231,12 @@ async function initialization(req: Request, base: string): Promise<Response> {
     for (const [k, v] of req.headers) if (k === 'authorization' || k.startsWith('x-kobo-') || k === 'user-agent') fwd.set(k, v)
     const res = await fetch(`${KOBO_STORE}/v1/initialization`, { headers: fwd, signal: AbortSignal.timeout(6000) })
     if (res.ok) resources = (await res.json())?.Resources ?? null
-    if (!resources) why = `Kobo answered ${res.status}`
+    // Why, as Kobo says it (never the token): whether the device sent one, and the reason
+    // in WWW-Authenticate ("invalid_token", "expired"...).
+    if (!resources) {
+      const reason = (res.headers.get('www-authenticate') ?? '').replace(/\s+/g, ' ').slice(0, 90)
+      why = `Kobo answered ${res.status}${fwd.has('authorization') ? '' : ', the device sent no sign-in'}${reason ? ` (${reason})` : ''}`
+    }
   } catch (e) {
     why = (e as Error)?.name === 'TimeoutError' ? 'Kobo timed out' : `Kobo unreachable (${(e as Error)?.name ?? 'error'})`
   }
