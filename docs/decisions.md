@@ -312,3 +312,13 @@
   Atril publishes an inbox row in Bitácora's database every 15 minutes (Edge Function
   `bitacora`, pg_cron) and Bitácora merges it with its own logic; neither reads the
   other's tables. See docs/bitacora.md.
+- 2026-11-10: **published books carry their KEPUB** (`publish_book.py`, PR #38): a book
+  published or replaced from the PC reaches the Kobo with no app open. Open: whether the
+  Kobo downloads a replaced file again (docs/kobo.md, "A replaced book").
+- 2026-11-10: **the book's inside is not restyled for the Kobo** (user: "No quiero que
+  cambies como se ve el libro por dentro"): no e-ink CSS, boxes or formula sizing in the
+  KEPUB. Outside the book (subject as series, collections) only if the user asks.
+- 2026-11-10: **coverage map looked at, not built.** `reading_sessions` has no section, so
+  "what was read or heard per unit" cannot come from existing data (IDEAS.md called it
+  quick): it needs a new record written by `SessionTracker`, a schema change and a
+  screen. Past sessions cannot be split by unit.

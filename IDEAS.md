@@ -26,7 +26,8 @@ Effort: **quick** = most pieces exist · **project** = days to weeks ·
   exact). Searchable, with read-along. Whisper invents text over silence and
   noise: low-confidence stretches are marked, never smoothed over. Recording
   needs the teacher's OK. The transcript can also feed resumidor's ingesta.
-- **Coverage map** (quick). Per section: read or listened, how many times, when
+- **Coverage map** (project, not quick: sessions record no section, see the 2026-11-10
+  note in `docs/decisions.md`). Per section: read or listened, how many times, when
   last. Builds on `reading_sessions` (listening may need its own record). For a
   resumidor book a section is a unit ("H10 never heard in full"). A hint only:
   what counts in resumidor is passing a route's gates, not time spent.

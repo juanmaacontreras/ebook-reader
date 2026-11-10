@@ -4,6 +4,10 @@
 
 ## Current state (2026-10-21)
 
+> Written on 2026-10-21, before any device had the app. Since then it is in daily use on
+> the phone, the PC and the Kobo; what the devices confirmed is in `docs/decisions.md` and
+> `docs/kobo.md`. The ⏳ marks below were not revisited one by one.
+
 Built, not yet confirmed on a device:
 - ⏳ Library (import, covers, filters), reader (themes, font, size, margins,
   spacing, paginated/scrolled), TOC, highlights + notes + panel (book / all,
