@@ -140,6 +140,9 @@
   5. VRAM guard: before loading a model, `torch.cuda.mem_get_info`; always
      leave ~600 MB to the desktop (Waydroid also uses this GPU). Not enough →
      don't load, say so in `worker_status` (shown in the app), never thrash.
+     (2026-11-10: the 600 MB margin was unreachable on the 4 GB card, idle
+     desktop = ~3280 MB free, so no Chatterbox job ever loaded; margin is now
+     100 MB over the measured 2948 MB, see `VRAM_NEED_MB` in `worker/main.py`.)
   6. Phone/tablet: Audios stays read-only with real state ("Generando en la PC
      · capítulo 4 de 12 · faltan ~40 min", "Listo", "Sin audio · pedilo desde
      la PC", "PC apagada"); chapters appear as they finish; playing a chapter
