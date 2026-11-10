@@ -107,6 +107,15 @@
   Kobo answers but not with 200. The log now says why ("resources: fallback, Kobo
   answered 401"). Everything Atril serves works; what the short fallback list leaves out
   of Kobo's own services on the device is not known.
+- **Speed (2026-11-10)**: in everyday use the function answered a `GET state` in ~0.4 s
+  and a `PUT` in ~0.5 s (medians of `kobo_log.ms` over a week; ~0.15 s only on the day
+  of heavy use), plus a cold start the log doesn't see: 0.9 s for a first request
+  against 0.15–0.3 s right after, measured from the PC. So a scheduled call hits
+  `kobo/ping` every minute (`supabase/kobo.sql`, pg_cron + pg_net; no token, one small
+  read, not logged), and the per-book map and text stay cached ten minutes, dropped
+  when the book's hash changes (`replaced`, index.ts). What is left is the firmware's:
+  it reports its place about every 30 s while reading (median 27 s, 90 % under 140 s)
+  and on closing, and asks for the place on opening a book and on waking.
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
   bodies as sent, the place sent back on `GET state`, `ms` to answer; two
   weeks). Each request reads what it needs in one round of parallel queries,

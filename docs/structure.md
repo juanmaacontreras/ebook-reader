@@ -64,6 +64,7 @@ tts-worker/               narration worker for the PC (Python 3.12, uv)
   run.sh / run.bat        one-step install + run (Linux / Windows), optional autostart
 supabase/schema.sql       full schema, idempotent (tables, RLS, triggers, buckets, Realtime)
 supabase/functions/kobo/  Edge Function: Atril as a Kobo's store (index.ts I/O, logic.ts pure + logic_test.ts)
+supabase/kobo.sql         pg_cron job that keeps the Kobo function warm (one call a minute)
 supabase/functions/bitacora/  Edge Function: sessions to Bitácora every 15 min (index.ts I/O, logic.ts pure + logic_test.ts); cron in supabase/bitacora.sql
 tools/screenshots.py      renders the real app in headless Chromium (design proposals)
 tools/kobo_e2e.py         Kobo sync end to end against the real backend (temporary account, cleaned up)

@@ -82,18 +82,31 @@ async function cached<T>(key: string, ms: number, load: () => Promise<T>): Promi
 }
 
 async function kepubMap(uid: string, book: string): Promise<KepubMap | null> {
-  return cached(`map:${book}`, 60_000, async () => {  // a minute: a replaced book has another
+  return cached(`map:${book}`, 10 * 60_000, async () => {
     const res = await storage(`${uid}/${book}/kepub.json`)
     return res.ok ? await res.json() as KepubMap : null
   })
 }
 
 async function manifest(uid: string, book: string): Promise<Manifest | null> {
-  return cached(`text:${book}`, 60_000, async () => {
+  return cached(`text:${book}`, 10 * 60_000, async () => {
     const res = await storage(`${uid}/${book}/text.json.gz`)
     if (!res.ok || !res.body) return null
     return JSON.parse(await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text()) as Manifest
   })
+}
+
+// The map and the text kept above belong to one version of the book. True when the book
+// has another now (replaced in place): they are dropped, read them again.
+const versions = new Map<string, string>()
+function replaced(book: { id: string; sha256: string | null }): boolean {
+  const now = book.sha256 ?? ''
+  const before = versions.get(book.id)
+  versions.set(book.id, now)
+  if (before === undefined || before === now) return false
+  cache.delete(`map:${book.id}`)
+  cache.delete(`text:${book.id}`)
+  return true
 }
 
 async function sha256(s: string): Promise<string> {
@@ -308,7 +321,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
       known = { ...known, kid: crypto.randomUUID(), confirmed_at: null, has_sha: null, state: null, told: [] }
       resend.push({ book_id: b.id, kid: known.kid! })
     }
-    const map = maps[k]
+    const map = replaced(b) ? await kepubMap(dev.user_id, b.id) : maps[k]
     const mine = asKnown(b, known)
     const state = readingState(mine, pos.get(b.id) ?? null, map, { state: known?.state ?? null, device: dev.tag })
     out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(mine), BookMetadata: metadata(mine, base, size.get(b.id) ?? null, series.get(b.id)), ReadingState: state } })
@@ -319,7 +332,6 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   if (feed.length) cursor.books = feed[feed.length - 1].synced_at
   if (resend.length) {
     cache.delete(`ids:${dev.id}`)
-    for (const r of resend) { cache.delete(`map:${r.book_id}`); cache.delete(`text:${r.book_id}`) }
     const now = new Date().toISOString()
     await rest('kobo_books?on_conflict=device_id,book_id', {
       method: 'POST', prefer: 'resolution=merge-duplicates',
@@ -355,7 +367,7 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
       const known = has.get(p.book_id)
       const book = byId.get(p.book_id)
       if (!known || known.removed || !book) continue
-      const state = readingState(asKnown(book, known), p, maps[k], { state: known.state, device: dev.tag })
+      const state = readingState(asKnown(book, known), p, replaced(book) ? await kepubMap(dev.user_id, book.id) : maps[k], { state: known.state, device: dev.tag })
       out.push({ ChangedReadingState: { ReadingState: state } })
       handed.push({ book: book.id, known, state })
     }
@@ -390,11 +402,13 @@ async function putState(req: Request, dev: Device, asked: string): Promise<Route
   if (!id || !UUID.test(id)) return { res: taken(asked), note: id ? 'not ours' : 'a replaced version: not taken' }
   // Everything this needs, at once (the map and the text are cached).
   // deno-lint-ignore no-explicit-any
-  const [book, body, kb, map, text, places]: [BookRow | null, any, Map<string, KoboBook>, KepubMap | null, Manifest | null, Map<string, AtrilPosition>] = await Promise.all([
+  // deno-lint-ignore prefer-const
+  let [book, body, kb, map, text, places]: [BookRow | null, any, Map<string, KoboBook>, KepubMap | null, Manifest | null, Map<string, AtrilPosition>] = await Promise.all([
     bookOf(dev, id), req.json().catch(() => null), koboBooks(dev, [id]), kepubMap(dev.user_id, id), manifest(dev.user_id, id),
     positionsOf(dev, [id]),
   ])
   if (!book) return { res: taken(asked), note: 'not ours' }  // a store book, or one removed from Atril
+  if (replaced(book)) [map, text] = await Promise.all([kepubMap(dev.user_id, id), manifest(dev.user_id, id)])
   const incoming: KoboState | undefined = body?.ReadingStates?.[0]
   if (!incoming) return { res: json({ error: 'missing ReadingStates' }, 400), body }
   const sent = structuredClone(incoming)
@@ -553,8 +567,10 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     const id = await bookId(dev, asked)
     if (!id || !UUID.test(id)) return toKobo(path, url)
     // The device waits for this one (opening a book): all of it at once.
-    const [book, kb, places, map] = await Promise.all([bookOf(dev, id), koboBooks(dev, [id]), positionsOf(dev, [id]), kepubMap(dev.user_id, id)])
+    // deno-lint-ignore prefer-const
+    let [book, kb, places, map] = await Promise.all([bookOf(dev, id), koboBooks(dev, [id]), positionsOf(dev, [id]), kepubMap(dev.user_id, id)])
     if (!book) return toKobo(path, url)
+    if (replaced(book)) map = await kepubMap(dev.user_id, id)
     const known = kb.get(id)
     const pos = places.get(id)
     const own = { state: known?.state ?? null, device: dev.tag }
@@ -612,6 +628,13 @@ Deno.serve(async (req: Request) => {
   const t0 = performance.now()
   const url = new URL(req.url)
   const rest_ = url.pathname.split('/kobo/')[1] ?? ''
+  // Kept warm by a scheduled call every minute (supabase/kobo.sql): a function left idle
+  // starts cold, which the Kobo pays when it opens a book (about 0.9 s against 0.15 s,
+  // measured 2026-11-10). One small query so the way to the database is warm too.
+  if (rest_ === 'ping') {
+    await rest('kobo_devices?select=id&limit=1').catch(() => null)
+    return new Response(null, { status: 204 })
+  }
   const slash = rest_.indexOf('/')
   const token = slash < 0 ? rest_ : rest_.slice(0, slash)
   const path = slash < 0 ? '' : rest_.slice(slash + 1).replace(/\/+$/, '')

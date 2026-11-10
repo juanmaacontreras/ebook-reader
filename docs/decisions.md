@@ -336,3 +336,7 @@
   the same day: it kept the old file). See "A replaced book" in docs/kobo.md. Also seen:
   `v1/initialization` has answered with the fallback resources since 2026-11-03 (83
   times, Kobo's own list not reached); not looked into.
+- 2026-11-10: **the Kobo function is kept warm** (user: "quiero que esté lo mejor posible,
+  más pulido y optimizado posible"). See "Speed" in docs/kobo.md. A replaced book reaches
+  the Kobo under a new id, confirmed on the device (download in `kobo_log`, 14:21 UTC);
+  see "A replaced book".
