@@ -193,12 +193,16 @@ const FALLBACK_RESOURCES: Record<string, string> = {
 
 async function initialization(req: Request, base: string): Promise<Response> {
   let resources: Record<string, unknown> | null = null
+  let why = ''  // why Kobo's own list wasn't used, for the log
   try {
     const fwd = new Headers()
     for (const [k, v] of req.headers) if (k === 'authorization' || k.startsWith('x-kobo-') || k === 'user-agent') fwd.set(k, v)
     const res = await fetch(`${KOBO_STORE}/v1/initialization`, { headers: fwd, signal: AbortSignal.timeout(6000) })
     if (res.ok) resources = (await res.json())?.Resources ?? null
-  } catch { /* Kobo unreachable: the fallback list */ }
+    if (!resources) why = `Kobo answered ${res.status}`
+  } catch (e) {
+    why = (e as Error)?.name === 'TimeoutError' ? 'Kobo timed out' : `Kobo unreachable (${(e as Error)?.name ?? 'error'})`
+  }
   const local = !resources
   resources ??= { ...FALLBACK_RESOURCES, device_auth: `${base}/v1/auth/device`, device_refresh: `${base}/v1/auth/refresh` }
   Object.assign(resources, {
@@ -217,7 +221,7 @@ async function initialization(req: Request, base: string): Promise<Response> {
     image_url_template: `${base}/{ImageId}/{Width}/{Height}/false/image.jpg`,
     image_url_quality_template: `${base}/{ImageId}/{Width}/{Height}/{Quality}/{IsGreyscale}/image.jpg`,
   })
-  return json({ Resources: resources }, 200, { 'x-kobo-apitoken': 'e30=', 'x-atril-resources': local ? 'fallback' : 'kobo' })
+  return json({ Resources: resources }, 200, { 'x-kobo-apitoken': 'e30=', 'x-atril-resources': local ? `fallback, ${why}` : 'kobo' })
 }
 
 // ---- Library sync -----------------------------------------------------------------
@@ -228,13 +232,13 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   const out: KoboState[] = []
   let more = false
 
-  // The three feeds at once: books, removals, places; and the books this device was
-  // handed but never showed it has (a lost answer, or one taken off it to send again).
+  // The three feeds at once: books, removals, places; and the books taken off this
+  // device to send again (a replaced one) that it hasn't downloaded yet.
   const [feed, deleted, moved, waiting] = await Promise.all([
     rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&user_id=eq.${dev.user_id}&kepub_path=not.is.null&synced_at=gt.${q(cursor.books)}&order=synced_at&limit=${LIMIT}`),
     rest<{ book_id: string; synced_at: string }[]>(`deleted_books?select=book_id,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.deleted)}&order=synced_at&limit=${LIMIT}`),
     rest<(AtrilPosition & { book_id: string; synced_at: string })[]>(`positions?select=book_id,section,sentence,fraction,device,updated_at,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.positions)}&order=synced_at&limit=${LIMIT}`),
-    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&removed=is.false&limit=${LIMIT}`),
+    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&resend_at=not.is.null&removed=is.false&limit=${LIMIT}`),
   ])
 
   // 1. Books added or changed (title, status, a KEPUB just built), then those waiting.
@@ -528,8 +532,8 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
       if (!(await bookOf(dev, id))) continue
       // Not the user's doing: the device answering a book this sync just took off it to
       // send again (were it to say so). The book must still be offered.
-      const at = known.get(id)?.resend_at
-      if (at && Date.now() - Date.parse(at) < 10 * 60_000) { kept++; continue }
+      const kb = known.get(id)
+      if (kb?.resend_at && !kb.confirmed_at && Date.now() - Date.parse(kb.resend_at) < 10 * 60_000) { kept++; continue }
       await rest('kobo_books?on_conflict=device_id,book_id', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
         body: JSON.stringify({ device_id: dev.id, book_id: id, removed: true }),

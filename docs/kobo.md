@@ -94,13 +94,17 @@
   while the function maps them with the new `kepub.json`. So `kobo_books.has_sha` keeps
   the EPUB hash whose KEPUB the device downloaded; when it differs from `books.sha256`
   the sync answers with the book removed and `x-kobo-sync: continue`, clears
-  `confirmed_at`, and the sync the device makes right after hands it as new (books
-  never confirmed are offered on every sync, which also covers a lost answer). For ten
-  minutes (`resend_at`) a DELETE or a report from the device does not count as the user
-  removing it or as having it. `has_sha` null (downloaded before this): left alone.
-  Covered by `tools/kobo_e2e.py`. **Not seen on the device yet**: that it takes the
+  `confirmed_at`, and the sync the device makes right after hands it as new, and so does
+  every sync until it downloads it. Until then, for ten minutes (`resend_at`), a DELETE
+  or a report from the device does not count as the user removing it or as having it. `has_sha` null (downloaded before this): left alone.
+  Covered by `tools/kobo_e2e.py` (all checks pass against the deployed function, 2026-11-10). **Not seen on the device yet**: that it takes the
   removal and the new entry in two syncs in a row. Highlights made on the Kobo in that
   book go with the old file.
+- **Initialization on the fallback list since 2026-11-03 (open)**: the first fallback
+  was a timeout (6 s, 19:44 UTC); from 20:33 on every one is a fast failure (~0.5 s), so
+  Kobo answers but not with 200. The log now says why ("resources: fallback, Kobo
+  answered 401"). Everything Atril serves works; what the short fallback list leaves out
+  of Kobo's own services on the device is not known.
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
   bodies as sent, the place sent back on `GET state`, `ms` to answer; two
   weeks). Each request reads what it needs in one round of parallel queries,
