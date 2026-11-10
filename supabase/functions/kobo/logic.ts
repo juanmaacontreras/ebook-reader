@@ -156,6 +156,13 @@ export function toldAfter(told: string[], previous: string | undefined, sent: st
   return sent === previous && !fresh ? told : []
 }
 
+// The device has another version of the book's file than the library: one replaced in
+// place after it downloaded it. Unknown (has_sha null, from before this was recorded) is
+// not a difference.
+export function replacedOnDevice(known: { confirmed_at: string | null; has_sha?: string | null } | undefined, sha: string | null | undefined): boolean {
+  return !!known?.confirmed_at && !!known.has_sha && !!sha && known.has_sha !== sha
+}
+
 export interface Place { section: number; sentence: number }
 export const before = (a: Place, b: Place) => a.section < b.section || (a.section === b.section && a.sentence < b.sentence)
 

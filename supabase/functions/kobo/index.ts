@@ -24,7 +24,7 @@
 
 import {
   type AtrilBook, type AtrilPosition, deviceTime, entitlement, type KepubMap, type KoboState, type Manifest,
-  metadata, offerNewer, placeFromKobo, readCursor, readingState, removedEntitlement, samePlace, seriesNumbers, START, startOf, statusChange,
+  metadata, offerNewer, placeFromKobo, readCursor, readingState, removedEntitlement, replacedOnDevice, samePlace, seriesNumbers, START, startOf, statusChange,
   type SyncCursor, takesPlace, tell, toldAfter, wordsBetween, writeCursor,
 } from './logic.ts'
 
@@ -110,8 +110,8 @@ async function deviceFor(token: string): Promise<Device | null> {
   })
 }
 
-const BOOK_COLUMNS = 'id,title,author,language,status,added_at,finished_at,updated_at,synced_at,kepub_path,subject'
-type BookRow = AtrilBook & { synced_at: string; kepub_path: string | null }
+const BOOK_COLUMNS = 'id,title,author,language,status,added_at,finished_at,updated_at,synced_at,kepub_path,subject,sha256'
+type BookRow = AtrilBook & { synced_at: string; kepub_path: string | null; sha256: string | null }
 
 const UUID = /^[0-9a-f-]{36}$/i
 
@@ -131,20 +131,21 @@ function seriesOf(dev: Device): Promise<Map<string, number>> {
 
 type KoboBook = {
   book_id: string; removed: boolean; state: KoboState | null; state_at: string | null; confirmed_at: string | null
-  told: string[]; told_at: string | null
+  told: string[]; told_at: string | null; has_sha: string | null; resend_at: string | null
 }
 
 // The device showed it has the book: later syncs send it as changed, not new.
-async function confirm(dev: Device, book: string): Promise<void> {
+// `sha`: the version of the file it downloaded.
+async function confirm(dev: Device, book: string, sha: string | null): Promise<void> {
   await rest('kobo_books?on_conflict=device_id,book_id', {
     method: 'POST', prefer: 'resolution=merge-duplicates',
-    body: JSON.stringify({ device_id: dev.id, book_id: book, confirmed_at: new Date().toISOString() }),
+    body: JSON.stringify({ device_id: dev.id, book_id: book, confirmed_at: new Date().toISOString(), has_sha: sha }),
   })
 }
 
 async function koboBooks(dev: Device, ids: string[]): Promise<Map<string, KoboBook>> {
   if (!ids.length) return new Map()
-  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at,told,told_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
+  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at,told,told_at,has_sha,resend_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
   return new Map(rows.map(r => [r.book_id, r]))
 }
 
@@ -227,15 +228,21 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   const out: KoboState[] = []
   let more = false
 
-  // The three feeds at once: books, removals, places.
-  const [books, deleted, moved] = await Promise.all([
+  // The three feeds at once: books, removals, places; and the books this device was
+  // handed but never showed it has (a lost answer, or one taken off it to send again).
+  const [feed, deleted, moved, waiting] = await Promise.all([
     rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&user_id=eq.${dev.user_id}&kepub_path=not.is.null&synced_at=gt.${q(cursor.books)}&order=synced_at&limit=${LIMIT}`),
     rest<{ book_id: string; synced_at: string }[]>(`deleted_books?select=book_id,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.deleted)}&order=synced_at&limit=${LIMIT}`),
     rest<(AtrilPosition & { book_id: string; synced_at: string })[]>(`positions?select=book_id,section,sentence,fraction,device,updated_at,synced_at&user_id=eq.${dev.user_id}&synced_at=gt.${q(cursor.positions)}&order=synced_at&limit=${LIMIT}`),
+    rest<{ book_id: string }[]>(`kobo_books?select=book_id&device_id=eq.${dev.id}&confirmed_at=is.null&removed=is.false&limit=${LIMIT}`),
   ])
 
-  // 1. Books added or changed (title, status, a KEPUB just built).
-  if (books.length === LIMIT) more = true
+  // 1. Books added or changed (title, status, a KEPUB just built), then those waiting.
+  if (feed.length === LIMIT) more = true
+  const again = waiting.map(w => w.book_id).filter(id => !feed.some(b => b.id === id))
+  const books = again.length
+    ? [...feed, ...await rest<BookRow[]>(`books?select=${BOOK_COLUMNS}&id=in.(${again.join(',')})&user_id=eq.${dev.user_id}&kepub_path=not.is.null`)]
+    : feed
   const ids = books.map(b => b.id)
   const [series, kb, pos, sizes, maps] = await Promise.all([
     ids.length ? seriesOf(dev) : Promise.resolve(new Map<string, number>()),
@@ -248,9 +255,18 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
   const sent: string[] = []
   const handed: { known: KoboBook | undefined; state: KoboState }[] = []
   const inEntitlements = new Set<string>()
+  const resend: string[] = []
   for (const [k, b] of books.entries()) {
     const known = kb.get(b.id)
     if (known?.removed) continue
+    // Replaced in place since the device downloaded it: off the device now, and as a
+    // new book in the sync it makes right after this one (x-kobo-sync: continue).
+    if (replacedOnDevice(known, b.sha256)) {
+      out.push(removedEntitlement(b.id, new Date().toISOString()))
+      resend.push(b.id)
+      more = true
+      continue
+    }
     const map = maps[k]
     const state = readingState(b, pos.get(b.id) ?? null, map, { state: known?.state ?? null, device: dev.tag })
     out.push({ [known?.confirmed_at ? 'ChangedEntitlement' : 'NewEntitlement']: { BookEntitlement: entitlement(b), BookMetadata: metadata(b, base, size.get(b.id) ?? null, series.get(b.id)), ReadingState: state } })
@@ -258,7 +274,14 @@ async function librarySync(req: Request, dev: Device, base: string): Promise<Res
     if (!known) sent.push(b.id)
     handed.push({ known, state })
   }
-  if (books.length) cursor.books = books[books.length - 1].synced_at
+  if (feed.length) cursor.books = feed[feed.length - 1].synced_at
+  if (resend.length) {
+    const now = new Date().toISOString()
+    await rest('kobo_books?on_conflict=device_id,book_id', {
+      method: 'POST', prefer: 'resolution=merge-duplicates',
+      body: JSON.stringify(resend.map(book_id => ({ device_id: dev.id, book_id, confirmed_at: null, has_sha: null, resend_at: now }))),
+    })
+  }
   if (sent.length) {
     await rest('kobo_books?on_conflict=device_id,book_id', {
       method: 'POST', prefer: 'resolution=ignore-duplicates',
@@ -409,12 +432,16 @@ async function putState(req: Request, dev: Device, id: string): Promise<Routed> 
   // What it was told and has now reported is done; `told` is written only
   // when that changes (a state handed out meanwhile must not be overwritten).
   // A report made after it was told (10 s for the clocks) without it: dropped.
+  // A report doesn't show the device has the book while it is being sent again (taken
+  // off it minutes ago, not downloaded yet): one still on its way must not stop that.
+  const resending = !!known?.resend_at && !known.confirmed_at && now.getTime() - Date.parse(known.resend_at) < 10 * 60_000
   const fresh = applies || !known?.told_at || decided.getTime() > Date.parse(known.told_at) + 10_000
   const left = toldAfter(told, previous?.StatusInfo?.Status, incoming.StatusInfo?.Status, fresh)
   writes.push(rest('kobo_books?on_conflict=device_id,book_id', {
     method: 'POST', prefer: 'resolution=merge-duplicates',
     body: JSON.stringify({
-      device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString(), confirmed_at: now.toISOString(),
+      device_id: dev.id, book_id: id, state: incoming, state_at: now.toISOString(),
+      ...(resending ? {} : { confirmed_at: now.toISOString() }),
       ...(left === told ? {} : { told: left }),
     }),
   }))
@@ -429,7 +456,7 @@ async function download(dev: Device, id: string): Promise<Response> {
   if (!book?.kepub_path) return new Response('not found', { status: 404 })
   const res = await storage(book.kepub_path)
   if (!res.ok || !res.body) return new Response('not found', { status: 404 })
-  await confirm(dev, id)
+  await confirm(dev, id, book.sha256)
   const h = new Headers({ 'Content-Type': 'application/epub+zip', 'Content-Disposition': 'attachment; filename="book.kepub.epub"' })
   const len = res.headers.get('content-length')
   if (len) h.set('Content-Length', len)
@@ -495,14 +522,20 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
   }
   if ((x = /^v1\/library\/([^/]+)$/.exec(path)) && m === 'DELETE') {
     const ids = x[1].split(',').filter(id => /^[0-9a-f-]{36}$/i.test(id))
+    const known = await koboBooks(dev, ids)
+    let kept = 0
     for (const id of ids) {
       if (!(await bookOf(dev, id))) continue
+      // Not the user's doing: the device answering a book this sync just took off it to
+      // send again (were it to say so). The book must still be offered.
+      const at = known.get(id)?.resend_at
+      if (at && Date.now() - Date.parse(at) < 10 * 60_000) { kept++; continue }
       await rest('kobo_books?on_conflict=device_id,book_id', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
         body: JSON.stringify({ device_id: dev.id, book_id: id, removed: true }),
       })
     }
-    return { res: new Response(null, { status: 204 }), note: `removed ${ids.length}` }
+    return { res: new Response(null, { status: 204 }), note: `removed ${ids.length - kept}` + (kept ? `, ${kept} being sent again: kept` : '') }
   }
   if ((x = /^download\/([^/]+)$/.exec(path))) return { res: await download(dev, x[1]) }
   if ((x = /^([0-9a-f-]{36})\/.*image\.jpg$/i.exec(path))) {

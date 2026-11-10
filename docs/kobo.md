@@ -87,15 +87,20 @@
   device learns it when the book is sent again in a sync (`books.synced_at` moves), so
   books it already has need a touch. To see on the device: the series under the title
   and in its Series tab.
-- **A replaced book (open, 2026-11-10)**: `publish_book.py` swaps the KEPUB under the
-  same book id, and the sync sends the book as a *changed* entitlement with the same
-  `RevisionId`. Not confirmed on the device: whether it downloads the file again. If
-  it keeps the old file, its `kobo.N` spans count the old sentences while the function
-  maps them with the new `kepub.json`, so places land off in chapters that changed.
-  To check: replace a book the Kobo has, sync, look for a `download/<id>` in
-  `kobo_log` and for the corrected text on the device. If it doesn't: send the book
-  as removed and then as new (the removal is known to work), keyed on the hash the
-  device downloaded (a new `kobo_books` column).
+- **A replaced book (2026-11-10)**: the device never downloads a changed book again.
+  Seen in `kobo_log`: "Sistemas de Comunicaciones — Resumen" downloaded 03:30:08 UTC,
+  replaced by `publish_book.py` at 03:34, sync at 03:36:24 answered "1 items" (the
+  changed entry), no `download/` after. Its `kobo.N` spans then count the old sentences
+  while the function maps them with the new `kepub.json`. So `kobo_books.has_sha` keeps
+  the EPUB hash whose KEPUB the device downloaded; when it differs from `books.sha256`
+  the sync answers with the book removed and `x-kobo-sync: continue`, clears
+  `confirmed_at`, and the sync the device makes right after hands it as new (books
+  never confirmed are offered on every sync, which also covers a lost answer). For ten
+  minutes (`resend_at`) a DELETE or a report from the device does not count as the user
+  removing it or as having it. `has_sha` null (downloaded before this): left alone.
+  Covered by `tools/kobo_e2e.py`. **Not seen on the device yet**: that it takes the
+  removal and the new entry in two syncs in a row. Highlights made on the Kobo in that
+  book go with the old file.
 - **Debugging a real device**: `kobo_log` (every request, no token; reading-state
   bodies as sent, the place sent back on `GET state`, `ms` to answer; two
   weeks). Each request reads what it needs in one round of parallel queries,

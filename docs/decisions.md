@@ -332,3 +332,7 @@
   que ver con el ebook, me interesa personalizar eso"), still without restyling the book's
   inside (same day, above). First step: the subject as the book's series (see "Subject as
   series" in docs/kobo.md); built, to deploy with a short-lived token.
+- 2026-11-10: **a replaced book is downloaded again by the Kobo** (found in `kobo_log`
+  the same day: it kept the old file). See "A replaced book" in docs/kobo.md. Also seen:
+  `v1/initialization` has answered with the fallback resources since 2026-11-03 (83
+  times, Kobo's own list not reached); not looked into.
