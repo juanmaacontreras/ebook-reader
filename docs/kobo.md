@@ -80,6 +80,13 @@
   time, so a declined place isn't offered every minute. Status keeps its real
   time (the `told` echo rule reads it). Not yet confirmed on the device: whether
   a Kobo left open and idle after declining asks again each minute.
+- **Subject as series (2026-11-10, not deployed, not seen on the device)**: a book with
+  `books.subject` goes with `Series` in its metadata (name = the subject, number = its
+  place among that subject's books by `added_at`; `seriesId`, `seriesNumbers` in
+  logic.ts), in the shape Calibre-Web sends. Books without a subject carry none. The
+  device learns it when the book is sent again in a sync (`books.synced_at` moves), so
+  books it already has need a touch. To see on the device: the series under the title
+  and in its Series tab.
 - **A replaced book (open, 2026-11-10)**: `publish_book.py` swaps the KEPUB under the
   same book id, and the sync sends the book as a *changed* entitlement with the same
   `RevisionId`. Not confirmed on the device: whether it downloads the file again. If

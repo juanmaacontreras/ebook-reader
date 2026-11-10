@@ -182,6 +182,7 @@ export interface AtrilBook {
   added_at: string
   finished_at: string | null
   updated_at: string
+  subject?: string | null
 }
 export interface AtrilPosition { section: number | null; sentence: number | null; fraction: number | null; device: string | null; updated_at: string }
 
@@ -237,8 +238,38 @@ export function offerNewer(state: KoboState, position: AtrilPosition | null, own
   return { ...state, LastModified: at, PriorityTimestamp: at, CurrentBookmark: { ...state.CurrentBookmark, LastModified: at } }
 }
 
-export function metadata(book: AtrilBook, base: string, size: number | null): KoboState {
+// A stable id for a series from its name (the device groups books by it).
+export function seriesId(name: string): string {
+  let hex = ''
+  for (let seed = 0; seed < 4; seed++) {
+    let x = 0x811c9dc5 ^ seed
+    for (const c of name.trim().toLowerCase()) x = Math.imul(x ^ c.codePointAt(0)!, 0x01000193) >>> 0
+    hex += x.toString(16).padStart(8, '0')
+  }
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+// The books of each subject in the order they were added: a book's number in its series.
+export function seriesNumbers(books: { id: string; subject: string | null; added_at: string }[]): Map<string, number> {
+  const out = new Map<string, number>()
+  const count = new Map<string, number>()
+  for (const b of [...books].sort((a, b) => a.added_at.localeCompare(b.added_at) || a.id.localeCompare(b.id))) {
+    const name = b.subject?.trim()
+    if (!name) continue
+    const n = (count.get(name.toLowerCase()) ?? 0) + 1
+    count.set(name.toLowerCase(), n)
+    out.set(b.id, n)
+  }
+  return out
+}
+
+// `number`: the book's place among those of its subject (seriesNumbers). A book with a
+// subject (resumidor's) goes as part of the series named after it, so the Kobo groups the
+// books of a subject together; other books carry no series, as before.
+export function metadata(book: AtrilBook, base: string, size: number | null, number?: number): KoboState {
+  const subject = book.subject?.trim()
   return {
+    ...(subject ? { Series: { Id: seriesId(subject), Name: subject, Number: String(number ?? 1), NumberFloat: number ?? 1 } } : {}),
     Categories: ['00000000-0000-0000-0000-000000000001'],
     ContributorRoles: book.author ? book.author.split(/,\s*/).map(Name => ({ Name })) : [],
     Contributors: book.author ? book.author.split(/,\s*/) : [],
