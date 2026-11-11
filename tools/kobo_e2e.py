@@ -167,7 +167,10 @@ def main() -> None:
         check(ahead(got), "…offered as new although the Kobo's own report is dated after the phone's place")
         _, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
         check(ahead(got), "…and again while it hasn't reported since")
-        time.sleep(1.1)
+        report("kobo.3.2", 7, "Reading", datetime.now(timezone.utc) - timedelta(seconds=30))  # its page as stamped on opening, sent late
+        _, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
+        check(ahead(got), "…and after a report stamped before the offer (kobo_log 2026-11-10 15:14)")
+        time.sleep(2.1)
         report("kobo.3.2", 7, "Reading", datetime.now(timezone.utc))  # declined: still on its page
         _, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
         check(got[0]["CurrentBookmark"]["Location"]["Value"] == "kobo.5.1" and not ahead(got), "once it reported after the offer: the place with its real time")
