@@ -158,8 +158,19 @@ def main() -> None:
               "the Kobo's next sync points it to the phone's sentence (kobo.5.1)")
         check(states and states[0]["Statistics"].get("SpentReadingMinutes") == 7, "…keeping the Kobo's own reading minutes")
         cursor = h.get("x-kobo-synctoken") or cursor
+        # Waking at home: its report gets here before it asks, its old page freshly dated.
+        # The phone's place was never handed to it on opening: it must still go as new.
+        report("kobo.3.2", 7, "Reading", datetime.now(timezone.utc))
+        ahead = lambda g: datetime.fromisoformat(g[0]["CurrentBookmark"]["LastModified"].replace("Z", "+00:00")) > datetime.now(timezone.utc)  # noqa: E731
         status, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
         check(status == 200 and got[0]["CurrentBookmark"]["Location"]["Value"] == "kobo.5.1", "GET state agrees")
+        check(ahead(got), "…offered as new although the Kobo's own report is dated after the phone's place")
+        _, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
+        check(ahead(got), "…and again while it hasn't reported since")
+        time.sleep(1.1)
+        report("kobo.3.2", 7, "Reading", datetime.now(timezone.utc))  # declined: still on its page
+        _, _, got = http("GET", f"{base}/v1/library/{bid}/state", headers=kobo)
+        check(got[0]["CurrentBookmark"]["Location"]["Value"] == "kobo.5.1" and not ahead(got), "once it reported after the offer: the place with its real time")
 
         pos_q = f"select section, sentence, device from positions where book_id = {lit(bid)}"
         later = lambda: (time.sleep(1.1), datetime.now(timezone.utc))[1]  # noqa: E731 (the device writes whole seconds)

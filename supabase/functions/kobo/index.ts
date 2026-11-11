@@ -148,6 +148,9 @@ type KoboBook = {
   // The id this device knows the book by: the book's own until it is replaced in place,
   // then a new one per version (the device keeps the file of an id it already has).
   kid: string | null
+  // The place of another device last handed to it as new (that place's updated_at) and
+  // when: offered until it reports after that (logic.ts, offerNewer).
+  offered?: string | null; offered_at?: string | null
 }
 
 // The book as this device knows it: its ids are the device's (`kid`).
@@ -190,7 +193,7 @@ async function confirm(dev: Device, book: string, sha: string | null): Promise<v
 
 async function koboBooks(dev: Device, ids: string[]): Promise<Map<string, KoboBook>> {
   if (!ids.length) return new Map()
-  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at,told,told_at,has_sha,resend_at,kid&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
+  const rows = await rest<KoboBook[]>(`kobo_books?select=book_id,removed,state,state_at,confirmed_at,told,told_at,has_sha,resend_at,kid,offered,offered_at&device_id=eq.${dev.id}&book_id=in.(${ids.join(',')})`)
   return new Map(rows.map(r => [r.book_id, r]))
 }
 
@@ -573,10 +576,19 @@ async function route(req: Request, url: URL, dev: Device, path: string, base: st
     if (replaced(book)) map = await kepubMap(dev.user_id, id)
     const known = kb.get(id)
     const pos = places.get(id)
-    const own = { state: known?.state ?? null, device: dev.tag }
+    const own = { state: known?.state ?? null, device: dev.tag, state_at: known?.state_at, offered: known?.offered, offered_at: known?.offered_at }
     const plain = readingState({ ...book, id: asked }, pos ?? null, map, own)
     const state = offerNewer(plain, pos ?? null, own)
-    await told(dev, [{ book: id, known, state }]).catch(e => console.error('kobo: told', e))
+    // Remember which place was offered and when (the first time it is): once the device
+    // reports after that, it has had it.
+    const first = state !== plain && pos && (!known?.offered || Date.parse(known.offered) !== Date.parse(pos.updated_at))
+    await Promise.all([
+      told(dev, [{ book: id, known, state }]),
+      first ? rest('kobo_books?on_conflict=device_id,book_id', {
+        method: 'POST', prefer: 'resolution=merge-duplicates',
+        body: JSON.stringify({ device_id: dev.id, book_id: id, offered: pos!.updated_at, offered_at: new Date().toISOString() }),
+      }) : null,
+    ]).catch(e => console.error('kobo: told/offered', e))
     const loc = state.CurrentBookmark?.Location
     const status = state.StatusInfo?.Status !== known?.state?.StatusInfo?.Status ? `, ${state.StatusInfo?.Status}` : ''
     const offered = state !== plain ? ', offered as new' : ''

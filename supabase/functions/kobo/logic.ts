@@ -232,15 +232,25 @@ export function readingState(book: AtrilBook, position: AtrilPosition | null, ma
 // bookmark, and it dates its bookmark again on opening a book, moved or not
 // (kobo_log 2026-11-04 and -05: a place read on the phone hours before, sent
 // when the book was opened at home, ignored; a page turned on the phone right
-// after, taken). So a place it hasn't seen yet (newer than the bookmark it last
-// reported) goes dated a minute from now: past anything it stamped on opening,
-// whatever its clock. Once it reports again (its bookmark now newer than the
-// place), the place goes with its real time, so it isn't offered every minute.
+// after, taken). So a place from another device goes dated a minute from now
+// (past anything it stamped on opening, whatever its clock) until the device
+// has had it: this very place was handed to it (`offered`, at `offered_at`) and
+// it reported afterwards (`state_at`), all three by the server's clock. Then it
+// goes with its real time, so a declined place isn't offered every minute.
+// Not judged by the date of the bookmark it last reported (as until
+// 2026-11-11): a report that reaches us before it asks (on waking, or a pending
+// one sent on getting Wi-Fi back) carries a fresh date on its old page, and the
+// place read on the phone on the way home passed for seen without ever being
+// offered; only a page turned on the phone afterwards got through.
 export const OFFER_AHEAD_MS = 60_000
-export function offerNewer(state: KoboState, position: AtrilPosition | null, own: { state: KoboState | null; device: string }, now = new Date()): KoboState {
+export interface Own { state: KoboState | null; device: string; state_at?: string | null; offered?: string | null; offered_at?: string | null }
+export function hadPlace(position: AtrilPosition, own: Own): boolean {
+  if (!own.offered || !own.offered_at || !own.state_at) return false
+  return Date.parse(own.offered) === Date.parse(position.updated_at) && Date.parse(own.state_at) > Date.parse(own.offered_at)
+}
+export function offerNewer(state: KoboState, position: AtrilPosition | null, own: Own, now = new Date()): KoboState {
   if (!position || position.device === own.device || !state.CurrentBookmark?.Location) return state
-  const reported = Date.parse(own.state?.CurrentBookmark?.LastModified ?? '')
-  if (reported >= Date.parse(position.updated_at)) return state
+  if (hadPlace(position, own)) return state
   const at = koboTime(new Date(now.getTime() + OFFER_AHEAD_MS))
   return { ...state, LastModified: at, PriorityTimestamp: at, CurrentBookmark: { ...state.CurrentBookmark, LastModified: at } }
 }
