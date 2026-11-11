@@ -157,9 +157,19 @@ Deno.test('a place the Kobo has not seen goes dated after its opening stamp', ()
   assertEquals(s.PriorityTimestamp, '2026-11-05T20:06:04Z')
   assertEquals(s.CurrentBookmark.Location.Value, 'kobo.3.1')  // the place itself is unchanged
   assertEquals(s.StatusInfo.LastModified, '2026-11-05T19:34:07Z')  // status keeps its real time
-  // Reported since (opened, declined, read on): the real time, not offered again.
-  const since = { state: { ...lastNight, CurrentBookmark: { ...lastNight.CurrentBookmark, LastModified: '2026-11-05T20:05:03Z' } }, device: 'kobo:1' }
-  assertEquals(offerNewer(readingState(book, pos, map, since), pos, since, now).CurrentBookmark.LastModified, '2026-11-05T19:34:07Z')
+  // Handed to it and reported since (opened, declined, read on): the real time, not offered again.
+  const had = { ...own, offered: '2026-11-05T19:34:07.32+00:00', offered_at: '2026-11-05T20:05:04Z', state_at: '2026-11-05T20:05:40Z' }
+  assertEquals(offerNewer(readingState(book, pos, map, had), pos, had, now).CurrentBookmark.LastModified, '2026-11-05T19:34:07Z')
+  // Handed but no report after it yet (it asks again before reporting): still offered.
+  const asked = { ...had, state_at: '2026-11-05T02:22:02Z' }
+  assertEquals(offerNewer(readingState(book, pos, map, asked), pos, asked, now).CurrentBookmark.LastModified, '2026-11-05T20:06:04Z')
+  // A report that got here before it asked, its old page freshly dated (on waking at home):
+  // the place was never handed to it, so it is offered (until 2026-11-11 it passed for seen).
+  const woke = { state: { ...lastNight, CurrentBookmark: { ...lastNight.CurrentBookmark, LastModified: '2026-11-05T20:05:03Z' } }, device: 'kobo:1', state_at: '2026-11-05T20:05:03Z' }
+  assertEquals(offerNewer(readingState(book, pos, map, woke), pos, woke, now).CurrentBookmark.LastModified, '2026-11-05T20:06:04Z')
+  // It had an earlier place from the phone; the phone read on since: the new one is offered.
+  const earlier = { ...had, offered: '2026-11-05T18:00:00Z', offered_at: '2026-11-05T18:10:00Z', state_at: '2026-11-05T18:11:00Z' }
+  assertEquals(offerNewer(readingState(book, pos, map, earlier), pos, earlier, now).CurrentBookmark.LastModified, '2026-11-05T20:06:04Z')
   // Never reported: offered. Its own place: handed back as it is.
   const none = { state: null, device: 'kobo:1' }
   assertEquals(offerNewer(readingState(book, pos, map, none), pos, none, now).CurrentBookmark.LastModified, '2026-11-05T20:06:04Z')

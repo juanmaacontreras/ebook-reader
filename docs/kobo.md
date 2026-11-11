@@ -80,6 +80,20 @@
   time, so a declined place isn't offered every minute. Status keeps its real
   time (the `told` echo rule reads it). Not yet confirmed on the device: whether
   a Kobo left open and idle after declining asks again each minute.
+- **Which places count as seen (2026-11-11, not deployed, not read in the log)**:
+  the user still had to turn a page on the phone at home before the Kobo offered
+  the place. Until now a place counted as seen when the bookmark the Kobo last
+  reported was dated after it; but a report can get here before it asks (on
+  waking, or a pending one sent on getting Wi-Fi back) with its old page freshly
+  dated, and then the phone's place went with its real time and was ignored
+  without ever being offered. Now it is by the server's clock only: a place is
+  offered as new until this very place was handed out (`kobo_books.offered` = its
+  `positions.updated_at`, at `offered_at`) and the device reported after that
+  (`state_at`); `hadPlace`, logic.ts. A side effect, wanted: a Kobo read offline
+  *behind* the phone's place ("behind: kept") is now offered that place once.
+  Deploy order: the two columns first (`schema.sql`), then the function. To
+  confirm in `kobo_log` on the next walk home: a `PUT` "no change" seconds
+  before the `GET state`, which must now say "offered as new".
 - **Subject as series (2026-11-10, not deployed, not seen on the device)**: a book with
   `books.subject` goes with `Series` in its metadata (name = the subject, number = its
   place among that subject's books by `added_at`; `seriesId`, `seriesNumbers` in

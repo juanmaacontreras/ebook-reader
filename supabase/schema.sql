@@ -352,6 +352,11 @@ alter table public.kobo_books add column if not exists resend_at timestamptz;
 -- in one sync or two: all tried on the real device, 2026-11-10), so a replaced book is
 -- handed to it under a new id, the old one going as removed.
 alter table public.kobo_books add column if not exists kid uuid;
+-- The place of another device last handed to this one dated as new (that place's
+-- positions.updated_at) and when. It is offered that way until the device reports after
+-- offered_at (functions/kobo/logic.ts, offerNewer).
+alter table public.kobo_books add column if not exists offered timestamptz;
+alter table public.kobo_books add column if not exists offered_at timestamptz;
 
 -- Every request a Kobo makes (never the token), kept two weeks: when and how
 -- often it syncs is only learnt from this. body: what it reported of a book
