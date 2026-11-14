@@ -30,6 +30,7 @@ client/                   the app: one web codebase (TypeScript + Vite, no frame
     search.ts             search inside a book over its manifest (no case or accents), with the CFI to jump to
     remap.ts              a replaced book: place and highlights moved to the same text in the new version
     kepub.ts              the book as a Kobo reads it: manifest sentences wrapped in koboSpans (see "Kobo")
+    pages.ts              book pages estimated from text length ("45 de 353") + the chapter heading
     bookStyles.ts         CSS injected into the book (light/sepia/dark reading themes, fonts, spacing)
   src/audio/
     controller.ts         narration of the open book: chapters, downloads, playlist, time→sentence
