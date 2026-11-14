@@ -3,6 +3,8 @@ import type { Location, View } from 'foliate-js/view.js'
 import { Overlayer } from 'foliate-js/overlayer.js'
 import { NarrationController } from '../audio/controller'
 import { bookCss, MARGIN_GAP, palette } from '../book/bookStyles'
+import { chapterHeading, PageCounter } from '../book/pages'
+import { sectionLabels } from '../book/manifest'
 import type { Hit } from '../book/search'
 import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentences'
 import { loadManifest } from '../data/files'
@@ -45,6 +47,8 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   // ---- Shell ---------------------------------------------------------------
   const titleEl = h('b', book.title)
   const chapterEl = h('span', '')
+  const headLeft = h('span.grow', '')
+  const headRight = h('span.num', '')
   const footLeft = h('span.grow', '')
   const footRight = h('span.num', '')
   const stage = h('div.stage')
@@ -62,7 +66,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     h('button.iconbtn.flat', { title: t.readingSettings, 'aria-label': t.readingSettings, onclick: () => openReadingSettings() }, icon('type')),
     listenBtn)
   const findPill = h('div.findpill', { hidden: true })
-  const shell = h('div.reader.chrome-off', stage, topbar, dock, findPill, h('div.rfoot', footLeft, footRight))
+  const shell = h('div.reader.chrome-off', stage, topbar, dock, findPill, h('div.rhead', headLeft, h('span.dot', '·'), headRight), h('div.rfoot', footLeft, h('span.dot', '·'), footRight))
   root.replaceChildren(shell)
   const loading = h('div.empty', { style: 'margin:auto' }, h('div.spinner', { style: 'margin:0 auto 12px' }), t.downloading)
   stage.append(loading)
@@ -83,6 +87,12 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   stage.replaceChildren(view)
   await view.open(new File([file], 'book.epub', { type: 'application/epub+zip' }))
   const me = await deviceId()
+  // Book pages are counted over text length: the manifest's when there is
+  // one, else each section's size in the file (same unit across the book).
+  const labels = sectionLabels(view.book)
+  const textLen = new Map(manifest?.sections.map(s => [s.i, s.sentences.reduce((n, x) => n + x.t.length + 1, 0)]))
+  const pageCounter = new PageCounter(view.book.sections.map((s, i) =>
+    s.linear === 'no' ? null : manifest ? textLen.get(i) ?? 0 : s.size ?? 0))
 
   // ---- Styles & layout ------------------------------------------------------
   const applyPrefs = () => {
@@ -213,17 +223,30 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     if ((loc.fraction ?? 0) > 0.995 && book.status !== 'finished') offerFinish()
   }) as EventListener)
 
-  // Footer: chapter on the left; pages left in this chapter (paginated only:
-  // the renderer counts screens of the current section, minus its two
-  // padding pages) and the book's percentage on the right.
+  // Top line: the chapter and its page ("3 de 37"); bottom line: the book and
+  // its page ("45 de 353"), like an e-reader. Pages exist only paginated: the
+  // renderer counts screens of the current section, minus its two padding
+  // pages; the book's are estimated (book/pages.ts). Scrolled: the percentage.
+  let layoutKey = ''
   const updateFooter = (loc: Location) => {
-    const pct = t.percentRead(Math.round((loc.fraction ?? 0) * 100))
     const r = view.renderer
-    footLeft.textContent = loc.tocItem?.label ?? ''
-    if (prefs().flow !== 'paginated' || r.pages <= 2) { footRight.textContent = pct; return }
+    const section = loc.section?.current ?? currentDoc()?.index ?? 0
+    headLeft.textContent = chapterHeading(labels, section, t.chapterWord) || (loc.tocItem?.label ?? '')
+    footLeft.textContent = book.title
+    if (prefs().flow !== 'paginated' || r.pages <= 2) {
+      headRight.textContent = ''
+      footRight.textContent = t.percentRead(Math.round((loc.fraction ?? 0) * 100))
+      return
+    }
+    const p = prefs()
+    const key = [innerWidth, innerHeight, p.font, p.fontSize, p.spacing, p.margins, p.justify].join('|')
+    if (key !== layoutKey) { layoutKey = key; pageCounter.reset() }
     const total = r.pages - 2
     const page = Math.min(Math.max(r.page, 1), total)
-    footRight.textContent = `${t.pagesLeftChapter(total - page)} · ${pct}`
+    pageCounter.measure(section, total)
+    headRight.textContent = t.pageOf(page, total)
+    const inBook = pageCounter.at(section, page)
+    footRight.textContent = inBook ? t.pageOf(inBook.page, inBook.total) : ''
   }
 
   const pagesSeen = new Set<string>()

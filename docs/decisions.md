@@ -356,3 +356,12 @@
   más pulido y optimizado posible"). See "Speed" in docs/kobo.md. A replaced book reaches
   the Kobo under a new id, confirmed on the device (download in `kobo_log`, 14:21 UTC);
   see "A replaced book".
+- 2026-11-14: **reading lines like the Kobo** (user, after reading on the Kobo: "me copa
+  más eso" than the percentage). Top: the chapter · its page ("Capítulo II · 16 de 17");
+  bottom: the book's title · its page ("Y no quedó ninguno · 191 de 460"). Variant A,
+  centered and muted, over B (left-aligned) and C (bold numbers). Replaces the
+  2026-10-22 footer ("Quedan N páginas del capítulo · P%"). Book pages are estimated
+  from text length (`book/pages.ts`): sections already opened count their real pages,
+  so the total can move a few pages while reading and starts over when the layout
+  changes. A chapter label without its number gets one ("3. PCM"), a bare number gets
+  the word ("Capítulo II"). Scrolled flow: no top line, the bottom one shows the %.

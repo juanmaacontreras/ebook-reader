@@ -159,9 +159,15 @@ textarea.field { resize:vertical; min-height:96px; line-height:1.4; }
 .rbar .rtitle b { display:block; font-size:15px; font-weight:800; letter-spacing:-.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .rbar .rtitle span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .reader.chrome-off .rbar.top { transform:translateY(-110%); opacity:0; pointer-events:none; }
-.rfoot { display:flex; align-items:center; gap:10px; padding:4px 18px calc(8px + var(--safe-bottom)); color:var(--book-muted);
-  font-size:12px; min-height:28px; }
-.rfoot .grow { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The reading lines: chapter · its page on top, book · its page at the bottom.
+   The top one sits in the page's own top margin (44px, paginated only). */
+.rhead, .rfoot { display:flex; align-items:center; justify-content:center; gap:6px; color:var(--book-muted); font-size:12px; }
+.rhead { position:absolute; left:0; right:0; top:calc(var(--safe-top) + 8px); height:44px; padding:0 18px; z-index:1; pointer-events:none; }
+.rfoot { padding:4px 18px calc(8px + var(--safe-bottom)); min-height:28px; }
+:is(.rhead, .rfoot) .grow { flex:0 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+:is(.rhead, .rfoot) .num { flex:none; }
+:is(.rhead, .rfoot) .num:empty, :is(.rhead, .rfoot) .dot:has(+ .num:empty) { display:none; }
+.reader[data-flow=scrolled] .rhead { display:none; }
 .bottomdock { position:absolute; left:0; right:0; bottom:0; z-index:10; padding:0 10px calc(10px + var(--safe-bottom));
   transition:transform .2s ease, opacity .2s; pointer-events:none; }
 .bottomdock > * { pointer-events:auto; max-width:640px; margin:0 auto; }
@@ -268,8 +274,8 @@ mark.q { background:color-mix(in srgb, var(--paused) 30%, transparent); color:in
 .spinner { width:18px; height:18px; border-radius:50%; border:2.5px solid color-mix(in srgb, currentColor 25%, transparent);
   border-top-color:currentColor; animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-.rfoot { transition:opacity .2s; }
-.reader:not(.chrome-off) .rfoot, .reader.playing .rfoot, .reader.listening .rfoot { opacity:0; }
+.rhead, .rfoot { transition:opacity .2s; }
+.reader:not(.chrome-off) :is(.rhead, .rfoot), .reader.playing .rfoot, .reader.listening .rfoot { opacity:0; }
 
 /* Library: "keep reading" card above the grid */
 .herocard { display:flex; gap:18px; padding:16px; margin-top:18px; border-radius:24px; background:var(--accentSoft); box-shadow:none; max-width:720px; }

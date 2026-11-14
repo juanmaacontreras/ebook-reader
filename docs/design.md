@@ -13,5 +13,6 @@ controls with a raised active option, system font 15 px, 800-weight titles
 with negative letter-spacing, tabular numerals for times, rounded minimal
 icons (`ui/icons.ts`), system bars = paper color. Dialogs are centered on wide
 screens and bottom sheets on phones. The reading surface has its own themes
-(light / sepia / dark / auto) in `book/bookStyles.ts`. Highlight colors:
+(light / sepia / dark / auto) in `book/bookStyles.ts`. Reading lines (chrome hidden):
+chapter · page on top, book · page at the bottom, centered and muted (`.rhead`/`.rfoot`). Highlight colors:
 `--hl-*` (yellow, green, blue, orange, purple), keys stored in the DB.
