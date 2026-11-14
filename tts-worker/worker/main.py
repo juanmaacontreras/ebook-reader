@@ -44,11 +44,14 @@ from .narrate import ChunkCache, Sentence, narrate
 from .supa import Supabase
 
 ROOT = Path(__file__).resolve().parents[1]
-# VRAM guard: what each engine needs on the GPU (measured on the GTX 1650, plus
-# headroom for the decoder's working set), and what always stays free for the
-# desktop (Hyprland, browser, Waydroid share this GPU). Not enough → don't load.
+# VRAM guard: what each engine's process takes on the GPU (measured with
+# nvidia-smi on the GTX 1650: Chatterbox settles at 2948 MB), and a small margin
+# on top. `memory.free` already excludes what the desktop uses and the ~390 MB
+# the driver reserves, so an idle desktop shows ~3280 MB free of 4096: a 600 MB
+# margin (the first value) could never be met and blocked every Chatterbox job
+# from 2026-10-29 to 2026-11-10. Not enough → don't load.
 VRAM_NEED_MB = {"kokoro": 1000, "chatterbox-v3": 3000, "chatterbox-latam": 3000}
-VRAM_RESERVE_MB = int(os.environ.get("VRAM_RESERVE_MB", "600"))
+VRAM_RESERVE_MB = int(os.environ.get("VRAM_RESERVE_MB", "100"))
 # Audio of a finished book is deleted from the cloud this long after it was
 # marked finished. The worker is the only one that deletes it.
 PURGE_AFTER_HOURS = float(os.environ.get("PURGE_AFTER_HOURS", "24"))
