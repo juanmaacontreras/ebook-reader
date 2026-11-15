@@ -388,3 +388,14 @@
   time, session by session, last 90 days, from 8 sessions of 5+ min) and how much clean reading
   is behind it; a steady scale (at least ±30% around the number) instead of one that hugs the
   data, so week-to-week noise looks like noise; speed per device (90 days, 10+ min each).
+- 2026-11-15: **time left in the reader** (option C, over A = pages + time in the bar and
+  B = time only in the bar). The bar that opens on a tap says "Quedan 8 min del capítulo" and
+  "3 h 50 min del libro" over the slider; while reading, the chapter's minutes follow the page
+  on the top line ("17 de 27 · 8 min"), so no tap is needed (a tap also takes that page out of
+  the speed). Words from the place to the end of the manifest section / the book
+  (`book/left.ts`) at the habitual speed in the book's language, whole minutes; nothing shown
+  while that speed is unknown, and not on the top line while listening. A chapter is a manifest
+  section. From a UI review asked by the user; the rest of that list (tablet library width,
+  the "Agregar libros" button over a cover, four unlabeled header icons, the native checkbox in
+  reading settings, the cut title in the phone's reader bar) is not built.
+

@@ -10,6 +10,7 @@ import { segmentDocument, sentenceAt, type SentenceRange } from '../book/sentenc
 import { loadManifest } from '../data/files'
 import { books, deviceId, highlights, positions } from '../data/store'
 import { habitualPace, langOf, SessionTracker, wordIndex } from '../data/sessions'
+import { readingSeconds, wordsLeft } from '../book/left'
 import { isAhead, leftBehind } from '../data/places'
 import { flush, onChange } from '../data/sync'
 import type { Highlight, HighlightColor } from '../data/types'
@@ -65,8 +66,10 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     h('button.iconbtn.flat', { title: t.highlights, 'aria-label': t.highlights, onclick: () => openHighlightsPanel(book.id, () => {}, cfi => void jumpTo(() => view.goTo(cfi))) }, icon('highlight')),
     h('button.iconbtn.flat', { title: t.readingSettings, 'aria-label': t.readingSettings, onclick: () => openReadingSettings() }, icon('type')),
     listenBtn)
+  const headTime = h('span.num.tleft')
+  let updateLeft: (at: { section: number; sentence: number }) => void = () => {}
   const findPill = h('div.findpill', { hidden: true })
-  const shell = h('div.reader.chrome-off', stage, topbar, dock, findPill, h('div.rhead', headLeft, h('span.dot', '·'), headRight), h('div.rfoot', footLeft, h('span.dot', '·'), footRight))
+  const shell = h('div.reader.chrome-off', stage, topbar, dock, findPill, h('div.rhead', headLeft, h('span.dot', '·'), headRight, h('span.dot', '·'), headTime), h('div.rfoot', footLeft, h('span.dot', '·'), footRight))
   root.replaceChildren(shell)
   const loading = h('div.empty', { style: 'margin:auto' }, h('div.spinner', { style: 'margin:0 auto 12px' }), t.downloading)
   stage.append(loading)
@@ -131,7 +134,9 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   }
 
   // ---- Position -------------------------------------------------------------
-  const tracker = new SessionTracker(book.id, wordIndex(manifest), await habitualPace(langOf(book)))
+  const pace = await habitualPace(langOf(book))
+  const tracker = new SessionTracker(book.id, wordIndex(manifest), pace)
+  const left = wordsLeft(manifest)
   const onHidden = () => { if (document.visibilityState === 'hidden') { tracker.interrupt(); void tracker.save() } }
   document.addEventListener('visibilitychange', onHidden)
   let lastLoc: Location | null = null
@@ -207,6 +212,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     const sents = sentencesOf(c.index, c.doc)
     const k = sents.length ? sentenceAt(sents, loc.range.startContainer, loc.range.startOffset) : 0
     const at = { section: c.index, sentence: k }
+    updateLeft(at)
     if (following) { lastPos = at; tracker.moved(at); return }
     pagesSeen.add(loc.cfi)
     if (!opened) { lastPos = at; void tracker.activity('read', at); return }
@@ -289,7 +295,17 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const navrow = h('div.card.navrow')
   const slider = h('input', { type: 'range', min: '0', max: '1', step: '0.001', value: '0' }) as HTMLInputElement
   slider.oninput = () => void jumpTo(() => view.goToFraction(parseFloat(slider.value)))
-  navrow.append(slider)
+  // How much is left at the reader's own speed: over the slider (chapter and
+  // book) and, while reading, the chapter's minutes on the top line (option C,
+  // picked 2026-11-15). Nothing while the speed in this language is unknown.
+  const nleft = h('div.ninfo')
+  navrow.append(nleft, slider)
+  updateLeft = at => {
+    const w = pace ? left(at.section, at.sentence) : null
+    const chapter = w ? t.dur(readingSeconds(w.chapter, pace!)) : ''
+    nleft.replaceChildren(...(w ? [h('b', t.leftChapter(chapter)), h('b', t.leftBook(t.dur(readingSeconds(w.book, pace!))))] : []))
+    headTime.textContent = chapter
+  }
   dock.append(selbar, navrow)
 
   const showSelection = (doc: Document, index: number) => {

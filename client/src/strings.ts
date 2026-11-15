@@ -287,6 +287,8 @@ export const t = {
   langName: (l: string) => ({ es: 'Castellano', en: 'Inglés', pt: 'Portugués', fr: 'Francés', it: 'Italiano', de: 'Alemán' } as Record<string, string>)[l] ?? l.toUpperCase(),
   timeLeft: 'Cuánto te falta',
   leftRead: (d: string) => `~${d} leyendo`,
+  leftChapter: (d: string) => `Quedan ${d} del capítulo`,
+  leftBook: (d: string) => `${d} del libro`,
   leftListen: (d: string) => `~${d} escuchando`,
   whenTitle: 'Cuándo leés',
   peakHour: (from: number, to: number) => `Leés más entre las ${from} y las ${to} h`,
