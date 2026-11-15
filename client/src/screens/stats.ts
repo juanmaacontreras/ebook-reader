@@ -132,9 +132,12 @@ function bars(buckets: Bucket[]): HTMLElement {
       h('span.lbl', b.label)))))
 }
 
-// Reading speed: the current number, how it compares with before, and its
-// evolution (one point per week, or per month after half a year).
-// A line chart (option A, picked 2026-10-22 over bars and a compact sparkline).
+// Reading speed: the current number, where it usually falls and how much
+// reading is behind it, how it compares with before, its evolution (one point
+// per week, or per month after half a year) and the speed on each device.
+// A line on a steady scale over the usual range (option A, picked 2026-11-15
+// over one dot per session; the line itself was picked 2026-10-22 over bars
+// and a sparkline). The scale doesn't hug the data: a week 10 wpm up is noise.
 function paceCard(st: Stats, lang: string | null, setLang: (l: string) => void): HTMLElement {
   const all = st.pace.read
   const p = all.find(x => x.lang === lang) ?? all[0] as LangPace | undefined
@@ -146,24 +149,21 @@ function paceCard(st: Stats, lang: string | null, setLang: (l: string) => void):
   const pct = p.before ? Math.round(100 * (p.now - p.before) / p.before) : null
   const delta = pct !== null ? h('div.delta' + (pct > 0 ? '.up' : ''), t.paceDelta(pct, p.beforeKind)) : null
   const hero = h('div.phero', h('span.hero.num', String(p.now)), h('span.unit', t.wpm(p.now).replace(/^\d+ /, '')))
-  const label = h('div.ptrend', p.monthly ? t.paceMonthly : t.paceWeekly)
-  return h('div.card.scard.span2', head, hero, delta, p.series.length > 1 ? [label, paceLine(p)] : null, listen)
+  const sub = h('div.psub', [p.spread ? t.paceSpread(p.spread[0], p.spread[1]) : null, t.paceBasis(t.dur(p.basis))].filter(Boolean).join(' · '))
+  const devices = p.devices.length > 1 ? h('div.pdevs', p.devices.map(d =>
+    h('div', h('span', DEVICE_LABEL[d.kind]), h('b.num', String(d.wpm), h('small', t.wpmShort(d.wpm).replace(/^\d+/, '')))))) : null
+  const chart = p.series.length > 1
+    ? [h('div.ptrend', p.monthly ? t.paceMonthly : t.paceWeekly, p.spread ? h('span.pkey', h('i'), t.paceBand) : null), paceChart(p)] : null
+  return h('div.card.scard.span2', head, hero, sub, delta, chart, devices, listen)
 }
 
-const fmtPoint = (p: LangPace, x: LangPace['series'][number]) =>
-  `${p.monthly ? fmtDate(x.start).split(' ')[1] : t.weekOf(fmtDate(x.start))}: ${t.wpmShort(x.wpm)} (${t.dur(x.minutes * 60)})`
-
-function scale(vals: number[]) {
-  const lo = Math.min(...vals), hi = Math.max(...vals)
-  const pad = Math.max(10, (hi - lo) * 0.15)
-  return { lo: Math.max(0, lo - pad), hi: hi + pad }
-}
-
-function paceLine(p: LangPace): HTMLElement {
+function paceChart(p: LangPace): HTMLElement {
   const W = 600, H = 150, n = p.series.length
-  const { lo, hi } = scale(p.series.map(x => x.wpm))
-  const X = (i: number) => 8 + i * (W - 16) / (n - 1)
-  const Y = (w: number) => 10 + (H - 20) * (1 - (w - lo) / (hi - lo))
+  const vals = [...p.series.map(x => x.wpm), ...(p.spread ?? []), p.now!]
+  const lo = Math.floor(Math.min(...vals, p.now! * 0.7) / 10) * 10, hi = Math.ceil(Math.max(...vals, p.now! * 1.3) / 10) * 10
+  const X = (i: number) => 10 + i * (W - 20) / (n - 1)
+  const Y = (w: number) => H * (1 - (w - lo) / (hi - lo))
+  const pc = (v: number, of: number) => `${(100 * v / of).toFixed(2)}%`
   const ns = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(ns, 'svg')
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`)
@@ -173,13 +173,16 @@ function paceLine(p: LangPace): HTMLElement {
   path.setAttribute('d', p.series.map((x, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(x.wpm).toFixed(1)}`).join(''))
   path.setAttribute('vector-effect', 'non-scaling-stroke')
   svg.append(path)
-  const dots = h('div.pdots', p.series.map((x, i) => h('i' + (i === n - 1 ? '.last' : ''), {
-    style: `left:${100 * X(i) / W}%;top:${100 * Y(x.wpm) / H}%`, title: fmtPoint(p, x) })))
-  const last = p.series[n - 1]
+  const fmt = (x: LangPace['series'][number]) =>
+    `${p.monthly ? fmtDate(x.start).split(' ')[1] : t.weekOf(fmtDate(x.start))}: ${t.wpmShort(x.wpm)} (${t.dur(x.minutes * 60)})`
   return h('div.pchart',
-    h('div.paxis', h('span.num', t.wpmShort(Math.round(hi))), h('span.num', t.wpmShort(Math.round(lo)))),
-    h('div.pplot', svg, dots, h('span.plast.num', { style: `top:${100 * Y(last.wpm) / H}%` }, String(last.wpm))),
-    h('div.pxl', h('span', fmtDate(p.series[0].start)), h('span', fmtDate(last.start))))
+    h('div.paxis', h('span.num', String(hi)), h('span.num', String(Math.round((hi + lo) / 2))), h('span.num', String(lo))),
+    h('div.pplot',
+      p.spread ? h('div.pband', { style: `top:${pc(Y(p.spread[1]), H)};height:${pc(Y(p.spread[0]) - Y(p.spread[1]), H)}` }) : null,
+      h('div.pnow', { style: `top:${pc(Y(p.now!), H)}` }),
+      svg,
+      h('div.pdots', p.series.map((x, i) => h('i', { style: `left:${pc(X(i), W)};top:${pc(Y(x.wpm), H)}`, title: fmt(x) })))),
+    h('div.pxl', h('span', fmtDate(p.series[0].start)), h('span', fmtDate(p.series[n - 1].start))))
 }
 
 function niceStep(max: number): number {

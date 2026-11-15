@@ -41,4 +41,17 @@ describe('langPace', () => {
     expect(p.monthly).toBe(true)
     expect(p.series).toHaveLength(3)
   })
+
+  it('says where most sessions fall, how much reading is behind the number, and the speed per device', () => {
+    const on = (kind: 'phone' | 'ereader', x: ReadingSession): ReadingSession => ({ ...x, device_kind: kind })
+    const phone = [180, 190, 195, 200, 200, 205, 210, 220, 260].map((w, i) => on('phone', s(i + 1, 20, w)))
+    const p = langPace('es', [...phone, on('ereader', s(3, 60, 210)), s(2, 2, 400)], NOW)
+    expect(p.spread).toEqual([190, 220])            // the middle 80% of the time; the 2 min session doesn't count
+    expect(p.basis).toBe((9 * 20 + 60 + 2) * 60)
+    expect(p.devices).toEqual([{ kind: 'phone', wpm: 207 }, { kind: 'ereader', wpm: 210 }])
+  })
+
+  it('gives no usual range from a handful of sessions', () => {
+    expect(langPace('es', [s(3, 30, 200), s(2, 30, 220)], NOW).spread).toBeNull()
+  })
 })

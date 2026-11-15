@@ -4,7 +4,7 @@
 import { gunzipJson } from '../book/manifest'
 import { kv } from './db'
 import { local } from './files'
-import { langOf, PACE, sessions, wordIndex } from './sessions'
+import { langOf, PACE, sessions, withEreaderPace, wordIndex } from './sessions'
 import { books, highlights, positions } from './store'
 import type { Book, DeviceKind, Manifest, ReadingSession } from './types'
 
@@ -32,6 +32,9 @@ export interface LangPace {
   beforeKind: 'months3' | 'start'
   series: { start: Date; wpm: number; minutes: number }[]
   monthly: boolean
+  basis: number                               // seconds of clean reading behind `now`
+  spread: [number, number] | null             // where most sessions fall (last 90 days)
+  devices: { kind: DeviceKind; wpm: number }[]  // last 90 days, most read first
 }
 
 export interface Stats {
@@ -53,9 +56,13 @@ export const splitTotal = (s: Split) => s.read + s.listen
 const DAY = 86400e3
 const PACE_MIN_SECONDS = 10 * 60     // a speed needs at least this much clean reading
 const POINT_MIN_SECONDS = 20 * 60    // a week (or month) in the chart too
+const SESSION_MIN_SECONDS = 5 * 60   // a session counted for the usual range
+const SPREAD_MIN_SESSIONS = 8
 
 export async function loadStats(): Promise<Stats> {
-  const all = (await sessions.all()).filter(s => s.seconds > 0)
+  const lib = await books.all()
+  const bookById = new Map(lib.map(b => [b.id, b]))
+  const all = withEreaderPace((await sessions.all()).filter(s => s.seconds > 0), id => langOf(bookById.get(id ?? '')))
   const year = new Date().getFullYear()
   const daily = new Map<string, Split>()
   const hours = Array(24).fill(0) as number[]
@@ -81,8 +88,6 @@ export async function loadStats(): Promise<Stats> {
   }
   const wpm = ([w, sec]: number[]) => sec >= PACE_MIN_SECONDS ? Math.round(w / (sec / 60)) : null
 
-  const lib = await books.all()
-  const bookById = new Map(lib.map(b => [b.id, b]))
   const clean = all.filter(s => s.kind === 'read' && s.pace_seconds > 0 && s.book_id && bookById.has(s.book_id))
   const langs = new Map<string, ReadingSession[]>()
   for (const s of clean) {
@@ -135,7 +140,23 @@ export function langPace(lang: string, ss: ReadingSession[], now = Date.now()): 
     for (const s of ss) { const t = Date.parse(s.started_at); if (t >= from && t < to) { w += s.pace_words; sec += s.pace_seconds } }
     return sec >= PACE_MIN_SECONDS ? Math.round(w / (sec / 60)) : null
   }
-  const current = win(now - 30 * DAY, now) ?? win(now - 90 * DAY, now)
+  const days = win(now - 30 * DAY, now) !== null ? 30 : 90
+  const current = win(now - days * DAY, now)
+  const recent = (d: number) => ss.filter(s => Date.parse(s.started_at) >= now - d * DAY)
+  const basis = recent(days).reduce((a, s) => a + s.pace_seconds, 0)
+  // The usual range: the middle 80% of the reading time, session by session.
+  const sorted = recent(90).filter(s => s.pace_seconds >= SESSION_MIN_SECONDS)
+    .map(s => ({ wpm: Math.round(s.pace_words / (s.pace_seconds / 60)), minutes: s.pace_seconds / 60 })).sort((a, b) => a.wpm - b.wpm)
+  const total = sorted.reduce((a, x) => a + x.minutes, 0)
+  const quantile = (f: number) => { let acc = 0; for (const x of sorted) { acc += x.minutes; if (acc >= f * total) return x.wpm } return sorted.at(-1)!.wpm }
+  const spread: LangPace['spread'] = sorted.length >= SPREAD_MIN_SESSIONS ? [quantile(0.1), quantile(0.9)] : null
+  const byDevice = new Map<DeviceKind, [number, number]>()
+  for (const s of recent(90)) if (s.device_kind) {
+    const a = byDevice.get(s.device_kind) ?? [0, 0]
+    byDevice.set(s.device_kind, [a[0] + s.pace_words, a[1] + s.pace_seconds])
+  }
+  const devices = [...byDevice].filter(([, a]) => a[1] >= PACE_MIN_SECONDS).sort((a, b) => b[1][1] - a[1][1])
+    .map(([kind, a]) => ({ kind, wpm: Math.round(a[0] / (a[1] / 60)) }))
   let before = win(now - 120 * DAY, now - 90 * DAY)
   let beforeKind: LangPace['beforeKind'] = 'months3'
   const first = Math.min(...ss.map(s => Date.parse(s.started_at)))
@@ -154,7 +175,7 @@ export function langPace(lang: string, ss: ReadingSession[], now = Date.now()): 
     .sort((a, b) => a.start.getTime() - b.start.getTime())
     .slice(monthly ? -24 : -26)
     .map(b => ({ start: b.start, wpm: Math.round(b.w / (b.s / 60)), minutes: Math.round(b.s / 60) }))
-  return { lang, now: current, before, beforeKind, series, monthly }
+  return { lang, now: current, before, beforeKind, series, monthly, basis, spread, devices }
 }
 
 export const setGoal = (n: number | null) => kv.set('yearGoal', n)

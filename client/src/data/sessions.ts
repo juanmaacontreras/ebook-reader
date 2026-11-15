@@ -20,6 +20,14 @@
 // The bounds start fixed and then follow the reader's own habitual speed in
 // that language. A too-slow page also counts at most a few times its normal
 // reading time in the totals.
+//
+// The Kobo can't be timed page by page: it reports its minutes read and its
+// place every so often (supabase/functions/kobo), one row per report with no
+// speed. Its speed is worked out here, when reading the rows: reports that
+// follow one another are one block of reading (the minute counter and the
+// place both carry over, so a first "1 min, 0 words" belongs with the next
+// report), and a block counts when it is long enough for the whole minutes to
+// matter little and its speed is believable next to the app's.
 
 import { isAndroid, isTauri } from '../platform'
 import { db } from './db'
@@ -41,6 +49,13 @@ export const PACE = {
   slowTimeFactor: 3,       // a too-slow page counts at most 3× its normal time
   habitualDays: 90,
   habitualMinSeconds: 10 * 60,
+}
+
+// Kobo blocks (reading speed).
+export const EREADER = {
+  chainMs: 90_000,         // a report starting this soon after the last one continues its block
+  minSeconds: 5 * 60,      // shorter blocks: whole minutes are too coarse
+  unknownSeconds: 3 * 60,  // this long with no words: the place wasn't known (or a jump), not a slow page
 }
 
 export const sessions = {
@@ -70,13 +85,49 @@ export const langOf = (b: Pick<Book, 'language'> | undefined) => (b?.language ??
 /** Reading speed (words per minute) over the last few months, from clean pages, for books in `lang`. */
 export async function habitualPace(lang: string, now = Date.now()): Promise<number | null> {
   const books = new Map((await db.all<Book>('books')).map(b => [b.id, b]))
+  const langOfId = (id: string | null) => langOf(books.get(id ?? ''))
   let w = 0, s = 0
-  for (const x of await sessions.all()) {
+  for (const x of withEreaderPace(await sessions.all(), langOfId, now)) {
     if (x.kind !== 'read' || !x.pace_seconds || Date.parse(x.started_at) < now - PACE.habitualDays * 86400e3) continue
-    if (langOf(books.get(x.book_id ?? '')) !== lang) continue
+    if (langOfId(x.book_id) !== lang) continue
     w += x.pace_words; s += x.pace_seconds
   }
   return s >= PACE.habitualMinSeconds ? w / (s / 60) : null
+}
+
+/** The same rows with the Kobo's speed filled in: each block of chained reports
+ *  that counts puts its words and time on its first row (see the header). */
+export function withEreaderPace<T extends ReadingSession>(rows: T[], lang: (bookId: string | null) => string, now = Date.now()): T[] {
+  const isKobo = (x: ReadingSession) => x.kind === 'read' && x.device_kind === 'ereader'
+  // The app's own speed per language: what a Kobo block is compared with.
+  const app = new Map<string, [number, number]>()
+  for (const x of rows) {
+    if (x.kind !== 'read' || isKobo(x) || !x.pace_seconds || Date.parse(x.started_at) < now - PACE.habitualDays * 86400e3) continue
+    const a = app.get(lang(x.book_id)) ?? [0, 0]
+    app.set(lang(x.book_id), [a[0] + x.pace_words, a[1] + x.pace_seconds])
+  }
+  const habitual = (l: string) => { const a = app.get(l); return a && a[1] >= PACE.habitualMinSeconds ? a[0] / (a[1] / 60) : null }
+
+  const out = rows.map(x => isKobo(x) ? { ...x, pace_words: 0, pace_seconds: 0 } : x)
+  type Block = { first: T; words: number; seconds: number; end: number }
+  const open = new Map<string, Block>()
+  const settle = (b: Block | undefined) => {
+    if (!b || b.seconds < EREADER.minSeconds || !b.words) return
+    if (!cleanPace(b.words / (b.seconds / 60), habitual(lang(b.first.book_id)))) return
+    b.first.pace_words = b.words; b.first.pace_seconds = b.seconds
+  }
+  for (const x of out.filter(isKobo).sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))) {
+    const key = `${x.device}|${x.book_id}`
+    const start = Date.parse(x.started_at), end = Date.parse(x.ended_at)
+    const unknown = !x.words && x.seconds >= EREADER.unknownSeconds
+    const b = open.get(key)
+    if (b && !unknown && start - b.end <= EREADER.chainMs) { b.words += x.words; b.seconds += x.seconds; b.end = end; continue }
+    settle(b)
+    if (unknown) open.delete(key)
+    else open.set(key, { first: x, words: x.words, seconds: x.seconds, end })
+  }
+  for (const b of open.values()) settle(b)
+  return out
 }
 
 /** Is a page read at `wpm` believable, given the habitual speed (if known)? */
