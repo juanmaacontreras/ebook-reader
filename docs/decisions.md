@@ -383,5 +383,8 @@
   (needs every page stored; the totals already agree).
   Open: tablet sessions of 22–29 Oct counted only ~40% of their time for speed with the rest at
   a normal speed (cause not found; the three of 30 Oct counted 51–99%, no tablet reading since).
-  Speed card: two proposals rendered behind `?variant=band|dots` (steady scale, usual range,
-  speed per device), waiting for the user's pick.
+  Speed card: **option A picked** (weekly line over the shaded usual range, over B = one dot
+  per session). Under the number: "Casi siempre entre X y Y" (the middle 80% of the reading
+  time, session by session, last 90 days, from 8 sessions of 5+ min) and how much clean reading
+  is behind it; a steady scale (at least ±30% around the number) instead of one that hugs the
+  data, so week-to-week noise looks like noise; speed per device (90 days, 10+ min each).

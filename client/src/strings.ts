@@ -281,8 +281,6 @@ export const t = {
   paceWeekly: 'Semana a semana',
   paceSpread: (lo: number, hi: number) => `Casi siempre entre ${lo} y ${hi}`,
   paceBasis: (d: string) => `medido en ${d} de lectura`,
-  paceSessions: 'Sesión por sesión',
-  paceSessionPoint: (d: string, wpm: string, dur: string, dev: string) => `${d}: ${wpm} (${dur}${dev ? `, ${dev}` : ''})`,
   paceBand: 'tu rango habitual',
   weekOf: (d: string) => `Semana del ${d}`,
   paceMonthly: 'Mes a mes',
