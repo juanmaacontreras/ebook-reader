@@ -175,12 +175,13 @@ textarea.field { resize:vertical; min-height:96px; line-height:1.4; }
 /* Listening, scrolled flow: room for the mini player under the text (paginated
    pages already leave it: the 44px page margin + the footer's place). */
 .reader.listening[data-flow=scrolled] .stage { padding-bottom:42px; }
-.navrow { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:8px; }
-:root[data-variant] .navrow { flex-direction:column; align-items:stretch; gap:2px; padding:12px 16px; }
-.ninfo { display:flex; justify-content:space-between; gap:12px; font-size:12.5px; color:var(--muted); font-weight:600; }
+.navrow { display:flex; flex-direction:column; align-items:stretch; gap:2px; padding:10px 12px; margin-bottom:8px; }
+.navrow:has(.ninfo:not(:empty)) { padding:12px 16px 10px; }
+.ninfo { display:flex; justify-content:space-between; gap:12px; font-size:12.5px; }
+.ninfo:empty { display:none; }
 .ninfo b { color:var(--inkSoft); font-weight:700; white-space:nowrap; }
-.ninfo span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.navrow input[type=range] { flex:1; }
+.reader:is(.playing, .listening) .rhead :is(.tleft, .dot:has(+ .tleft)) { display:none; }
+.navrow input[type=range] { flex:none; width:100%; }
 .navrow .pct { font-size:12.5px; font-weight:700; color:var(--inkSoft); min-width:38px; text-align:right; }
 
 input[type=range] { -webkit-appearance:none; appearance:none; background:transparent; height:24px; cursor:pointer; }

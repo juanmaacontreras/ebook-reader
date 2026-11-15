@@ -66,7 +66,7 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
     h('button.iconbtn.flat', { title: t.highlights, 'aria-label': t.highlights, onclick: () => openHighlightsPanel(book.id, () => {}, cfi => void jumpTo(() => view.goTo(cfi))) }, icon('highlight')),
     h('button.iconbtn.flat', { title: t.readingSettings, 'aria-label': t.readingSettings, onclick: () => openReadingSettings() }, icon('type')),
     listenBtn)
-  const headTime = h('span.num')
+  const headTime = h('span.num.tleft')
   let updateLeft: (at: { section: number; sentence: number }) => void = () => {}
   const findPill = h('div.findpill', { hidden: true })
   const shell = h('div.reader.chrome-off', stage, topbar, dock, findPill, h('div.rhead', headLeft, h('span.dot', '·'), headRight, h('span.dot', '·'), headTime), h('div.rfoot', footLeft, h('span.dot', '·'), footRight))
@@ -295,18 +295,16 @@ export async function readerScreen(root: HTMLElement, bookId: string, goBack: ()
   const navrow = h('div.card.navrow')
   const slider = h('input', { type: 'range', min: '0', max: '1', step: '0.001', value: '0' }) as HTMLInputElement
   slider.oninput = () => void jumpTo(() => view.goToFraction(parseFloat(slider.value)))
-  // PROPOSAL (?variant=a|b|c): how much is left, at the reader's own speed.
-  const variant = document.documentElement.dataset.variant
-  const nTop = h('div.ninfo'), nBottom = h('div.ninfo')
-  navrow.append(...(variant ? [nTop] : []), slider, ...(variant === 'a' ? [nBottom] : []))
+  // How much is left at the reader's own speed: over the slider (chapter and
+  // book) and, while reading, the chapter's minutes on the top line (option C,
+  // picked 2026-11-15). Nothing while the speed in this language is unknown.
+  const nleft = h('div.ninfo')
+  navrow.append(nleft, slider)
   updateLeft = at => {
     const w = pace ? left(at.section, at.sentence) : null
-    const chapter = w ? t.dur(readingSeconds(w.chapter, pace!)) : '', bookLeft = w ? t.dur(readingSeconds(w.book, pace!)) : ''
-    if (variant === 'a') {
-      nTop.replaceChildren(h('span', [headLeft.textContent, headRight.textContent].filter(Boolean).join(' · ')), h('b', w ? t.leftShort(chapter) : ''))
-      nBottom.replaceChildren(h('span', footRight.textContent ?? ''), h('b', w ? t.leftBook(bookLeft) : ''))
-    } else if (variant) nTop.replaceChildren(h('b', w ? t.leftChapter(chapter) : ''), h('b', w ? t.leftBook(bookLeft) : ''))
-    headTime.textContent = variant === 'c' && w ? chapter : ''
+    const chapter = w ? t.dur(readingSeconds(w.chapter, pace!)) : ''
+    nleft.replaceChildren(...(w ? [h('b', t.leftChapter(chapter)), h('b', t.leftBook(t.dur(readingSeconds(w.book, pace!))))] : []))
+    headTime.textContent = chapter
   }
   dock.append(selbar, navrow)
 
