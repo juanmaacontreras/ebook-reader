@@ -4,7 +4,7 @@
 import { gunzipJson } from '../book/manifest'
 import { kv } from './db'
 import { local } from './files'
-import { langOf, PACE, sessions, wordIndex } from './sessions'
+import { langOf, PACE, sessions, withEreaderPace, wordIndex } from './sessions'
 import { books, highlights, positions } from './store'
 import type { Book, DeviceKind, Manifest, ReadingSession } from './types'
 
@@ -55,7 +55,9 @@ const PACE_MIN_SECONDS = 10 * 60     // a speed needs at least this much clean r
 const POINT_MIN_SECONDS = 20 * 60    // a week (or month) in the chart too
 
 export async function loadStats(): Promise<Stats> {
-  const all = (await sessions.all()).filter(s => s.seconds > 0)
+  const lib = await books.all()
+  const bookById = new Map(lib.map(b => [b.id, b]))
+  const all = withEreaderPace((await sessions.all()).filter(s => s.seconds > 0), id => langOf(bookById.get(id ?? '')))
   const year = new Date().getFullYear()
   const daily = new Map<string, Split>()
   const hours = Array(24).fill(0) as number[]
@@ -81,8 +83,6 @@ export async function loadStats(): Promise<Stats> {
   }
   const wpm = ([w, sec]: number[]) => sec >= PACE_MIN_SECONDS ? Math.round(w / (sec / 60)) : null
 
-  const lib = await books.all()
-  const bookById = new Map(lib.map(b => [b.id, b]))
   const clean = all.filter(s => s.kind === 'read' && s.pace_seconds > 0 && s.book_id && bookById.has(s.book_id))
   const langs = new Map<string, ReadingSession[]>()
   for (const s of clean) {

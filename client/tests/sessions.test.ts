@@ -5,7 +5,8 @@ vi.mock('../src/data/db', () => ({ db: { put: async (_s: string, row: Record<str
 vi.mock('../src/data/store', () => ({ deviceId: async () => 'dev1' }))
 vi.mock('../src/data/sync', () => ({ pushSoon: () => {} }))
 
-const { SessionTracker, cleanPace, wordIndex } = await import('../src/data/sessions')
+const { SessionTracker, cleanPace, withEreaderPace, wordIndex } = await import('../src/data/sessions')
+import type { ReadingSession } from '../src/data/types'
 
 // One sentence of 100 words per "page", in two sections; then short ones.
 const words = (n: number) => Array(n).fill('palabra').join(' ') + '.'
@@ -128,5 +129,38 @@ describe('SessionTracker', () => {
     await tr.close()
     expect(new Set(saved.map(r => r.id)).size).toBe(2)
     expect(saved.find(r => r.kind === 'listen')!.seconds).toBe(20)
+  })
+})
+
+describe('withEreaderPace', () => {
+  const T0 = Date.parse('2026-11-10T20:00:00Z')
+  const NOW = T0 + 86400e3
+  // A Kobo report: `minutes` read ending `endMin` minutes after T0, `words` passed.
+  const kobo = (endMin: number, minutes: number, words: number, book = 'b'): ReadingSession => ({
+    id: `${book}${endMin}`, book_id: book, kind: 'read', device: 'kobo:1', device_kind: 'ereader',
+    started_at: new Date(T0 + (endMin - minutes) * 60_000).toISOString(), ended_at: new Date(T0 + endMin * 60_000).toISOString(),
+    seconds: minutes * 60, words, pace_words: 0, pace_seconds: 0, updated_at: '',
+  })
+  const app = (minutes: number, wpm: number): ReadingSession => ({
+    ...kobo(-600, minutes, 0), id: 'app', device: 'p', device_kind: 'phone', pace_words: wpm * minutes, pace_seconds: minutes * 60,
+  })
+  const pace = (rows: ReadingSession[]) => withEreaderPace(rows, () => 'es', NOW).filter(r => r.pace_seconds).map(r => [r.id, r.pace_words, r.pace_seconds])
+
+  it('chains reports that follow one another into one block, on its first row', () => {
+    // 2 min with the place not moved yet, then 20 min: 4400 words in 22 min, not in 20.
+    expect(pace([kobo(22, 20, 4400), kobo(2, 2, 0)])).toEqual([['b2', 4400, 22 * 60]])
+  })
+
+  it('keeps apart reports with a pause in between, and other books', () => {
+    expect(pace([kobo(10, 10, 2000), kobo(40, 10, 2200), kobo(50, 10, 1800, 'c')]))
+      .toEqual([['b10', 2000, 600], ['b40', 2200, 600], ['c50', 1800, 600]])
+  })
+
+  it('leaves out short blocks, unknown places and unbelievable speeds', () => {
+    expect(pace([kobo(3, 3, 600)])).toEqual([])                       // whole minutes too coarse
+    expect(pace([kobo(15, 15, 0), kobo(26, 11, 2200)])).toEqual([['b26', 2200, 660]])  // 15 min, no words: not a lead-in
+    expect(pace([kobo(10, 10, 9000)])).toEqual([])                    // 900 wpm
+    expect(pace([app(20, 200), kobo(20, 20, 1400)])).toEqual([['app', 4000, 1200]])    // 70 wpm next to 200: left open
+    expect(pace([app(20, 200), kobo(20, 20, 4200)]).length).toBe(2)
   })
 })
