@@ -368,3 +368,20 @@
   so the total can move a few pages while reading and starts over when the layout
   changes. A chapter label without its number gets one ("3. PCM"), a bare number gets
   the word ("Capítulo II"). Scrolled flow: no top line, the bottom one shows the %.
+- 2026-11-15: **reading speed audited on the real sessions; the Kobo counts ("Kobo blocks").**
+  User asked for the speed to be as precise as possible and to see the Kobo's reading in it.
+  The Kobo only reports whole minutes read and its place, so it can't be judged page by page:
+  `withEreaderPace` (`data/sessions.ts`) chains reports that follow one another (≤90 s apart,
+  same book) into a block and counts it when it is ≥5 min and at a believable speed (the same
+  `cleanPace` bounds, against the app's own habitual speed). A report of ≥3 min with no words
+  (place unknown, or a jump) is left out and breaks the chain. Worked out when reading the
+  rows: no schema or function change, past Kobo reading counts, nothing extra on the device
+  (no battery cost). Measured on 24 days of real data: Kobo 197 wpm over 375 of its 419 min,
+  app 199 wpm over 683 min: two independent measurements within 1%. Short Kobo blocks read
+  low (the last page's time is in, its words go to the next block); only the total is unbiased.
+  Not built on purpose: timing each page on the Kobo (it doesn't report it), a median per page
+  (needs every page stored; the totals already agree).
+  Open: tablet sessions of 22–29 Oct counted only ~40% of their time for speed with the rest at
+  a normal speed (cause not found; the three of 30 Oct counted 51–99%, no tablet reading since).
+  Speed card: two proposals rendered behind `?variant=band|dots` (steady scale, usual range,
+  speed per device), waiting for the user's pick.

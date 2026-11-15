@@ -147,7 +147,51 @@ function paceCard(st: Stats, lang: string | null, setLang: (l: string) => void):
   const delta = pct !== null ? h('div.delta' + (pct > 0 ? '.up' : ''), t.paceDelta(pct, p.beforeKind)) : null
   const hero = h('div.phero', h('span.hero.num', String(p.now)), h('span.unit', t.wpm(p.now).replace(/^\d+ /, '')))
   const label = h('div.ptrend', p.monthly ? t.paceMonthly : t.paceWeekly)
+  const variant = document.documentElement.dataset.variant
+  if (variant === 'band' || variant === 'dots') {
+    const sub = h('div.psub', [p.spread ? t.paceSpread(p.spread[0], p.spread[1]) : null, t.paceBasis(t.dur(p.basis))].filter(Boolean).join(' · '))
+    const devices = p.devices.length > 1 ? h('div.pdevs', p.devices.map(d => h('div', h('span', DEVICE_LABEL[d.kind]), h('b.num', String(d.wpm), h('small', t.wpmShort(d.wpm).replace(/^\d+/, '')))))) : null
+    const dots = variant === 'dots'
+    const chart = (dots ? p.points.length > 2 : p.series.length > 1)
+      ? [h('div.ptrend', dots ? t.paceSessions : p.monthly ? t.paceMonthly : t.paceWeekly, p.spread ? h('span.pkey', h('i'), t.paceBand) : null), paceChart(p, dots)] : null
+    return h('div.card.scard.span2', head, hero, sub, delta, chart, devices, listen)
+  }
   return h('div.card.scard.span2', head, hero, delta, p.series.length > 1 ? [label, paceLine(p)] : null, listen)
+}
+
+// The speed over time on a steady scale, with the usual range shaded behind:
+// the weekly line, or one dot per session (bigger = longer).
+function paceChart(p: LangPace, dots: boolean): HTMLElement {
+  const W = 600, H = 150
+  const pts = dots ? p.points.map(x => ({ x: x.at.getTime(), wpm: x.wpm, minutes: x.minutes, title: t.paceSessionPoint(fmtDate(x.at), t.wpmShort(x.wpm), t.dur(x.minutes * 60), x.kind ? DEVICE_LABEL[x.kind] : '') }))
+    : p.series.map((x, i) => ({ x: i, wpm: x.wpm, minutes: x.minutes, title: fmtPoint(p, x) }))
+  const vals = [...pts.map(x => x.wpm), ...(p.spread ?? []), p.now!]
+  const lo = Math.floor(Math.min(...vals, p.now! * 0.7) / 10) * 10, hi = Math.ceil(Math.max(...vals, p.now! * 1.3) / 10) * 10
+  const x0 = pts[0].x, x1 = Math.max(pts.at(-1)!.x, x0 + 1)
+  const X = (x: number) => 10 + (x - x0) * (W - 20) / (x1 - x0)
+  const Y = (w: number) => H * (1 - (w - lo) / (hi - lo))
+  const plot = h('div.pplot')
+  if (p.spread) plot.append(h('div.pband', { style: `top:${100 * Y(p.spread[1]) / H}%;height:${100 * (Y(p.spread[0]) - Y(p.spread[1])) / H}%` }))
+  plot.append(h('div.pnow', { style: `top:${100 * Y(p.now!) / H}%` }))
+  if (!dots) {
+    const ns = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(ns, 'svg')
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`)
+    svg.setAttribute('preserveAspectRatio', 'none')
+    svg.classList.add('pline')
+    const path = document.createElementNS(ns, 'path')
+    path.setAttribute('d', pts.map((x, i) => `${i ? 'L' : 'M'}${X(x.x).toFixed(1)},${Y(x.wpm).toFixed(1)}`).join(''))
+    path.setAttribute('vector-effect', 'non-scaling-stroke')
+    svg.append(path)
+    plot.append(svg)
+  }
+  const size = (m: number) => dots ? Math.round(Math.min(16, 6 + Math.sqrt(m) * 1.6)) : 12
+  plot.append(h('div.pdots' + (dots ? '.sess' : ''), pts.map(x => h('i', { style: `left:${100 * X(x.x) / W}%;top:${100 * Y(x.wpm) / H}%;--s:${size(x.minutes)}px`, title: x.title }))))
+  const first = dots ? p.points[0].at : p.series[0].start, last = dots ? p.points.at(-1)!.at : p.series.at(-1)!.start
+  return h('div.pchart.steady',
+    h('div.paxis', h('span.num', String(hi)), h('span.num', String(Math.round((hi + lo) / 2))), h('span.num', String(lo))),
+    plot,
+    h('div.pxl', h('span', fmtDate(first)), h('span', fmtDate(last))))
 }
 
 const fmtPoint = (p: LangPace, x: LangPace['series'][number]) =>

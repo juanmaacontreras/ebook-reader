@@ -44,8 +44,9 @@
   another device read the book after it. The device's `StatusInfo.LastModified` is
   its report time, not when the status changed: no use for ordering.
   `SpentReadingMinutes` deltas become `reading_sessions`
-  (`device_kind` 'ereader', words between the two places, never in reading
-  speed). Removing a book on the Kobo only hides it there (`kobo_books.removed`).
+  (`device_kind` 'ereader', words between the two places; the rows carry no
+  speed, the app works it out from blocks of chained reports, see "Kobo blocks"
+  in `docs/decisions.md`). Removing a book on the Kobo only hides it there (`kobo_books.removed`).
 - **Security**: deployed with JWT verification off (the device can't send one;
   the user authorized it 2026-11-02). The token is the credential, only its
   SHA-256 stored in `kobo_devices`; the function is the one place using the

@@ -279,6 +279,11 @@ export const t = {
   paceDelta: (pct: number, kind: 'months3' | 'start') =>
     `${pct === 0 ? 'Igual' : pct > 0 ? `${pct}% más rápido` : `${-pct}% más lento`} ${kind === 'months3' ? 'que hace 3 meses' : 'que cuando empezaste'}`,
   paceWeekly: 'Semana a semana',
+  paceSpread: (lo: number, hi: number) => `Casi siempre entre ${lo} y ${hi}`,
+  paceBasis: (d: string) => `medido en ${d} de lectura`,
+  paceSessions: 'Sesión por sesión',
+  paceSessionPoint: (d: string, wpm: string, dur: string, dev: string) => `${d}: ${wpm} (${dur}${dev ? `, ${dev}` : ''})`,
+  paceBand: 'tu rango habitual',
   weekOf: (d: string) => `Semana del ${d}`,
   paceMonthly: 'Mes a mes',
   langName: (l: string) => ({ es: 'Castellano', en: 'Inglés', pt: 'Portugués', fr: 'Francés', it: 'Italiano', de: 'Alemán' } as Record<string, string>)[l] ?? l.toUpperCase(),
